@@ -1,0 +1,155 @@
+[2026-05-05 04:41:26] [31merror[39m: POST /api/agents — Email already registered
+[2026-05-05 15:03:54] [31merror[39m: POST /api/dialer/call/manual — Url is not a valid URL: http://localhost:3000/api/dialer/twiml/connect/1
+[2026-05-05 20:18:44] [31merror[39m: GET /api/campaigns — 
+Invalid `prisma.contact.count()` invocation in
+/Volumes/iMac_Zee_HD2/dialer-backend/src/services/campaign.service.ts:44:24
+
+  41 campaigns.map(async (c) => {
+  42   const [pending, answered, missed, active] = await Promise.all([
+  43     prisma.contact.count({ where: { campaignId: c.id, status: 'PENDING' } }),
+→ 44     prisma.contact.count(
+Timed out fetching a new connection from the connection pool. More info: http://pris.ly/d/connection-pool (Current connection pool timeout: 10, connection limit: 1)
+[2026-05-05 20:18:45] [31merror[39m: GET /api/campaigns — 
+Invalid `prisma.contact.count()` invocation in
+/Volumes/iMac_Zee_HD2/dialer-backend/src/services/campaign.service.ts:43:24
+
+  40 const enriched = await Promise.all(
+  41   campaigns.map(async (c) => {
+  42     const [pending, answered, missed, active] = await Promise.all([
+→ 43       prisma.contact.count(
+Timed out fetching a new connection from the connection pool. More info: http://pris.ly/d/connection-pool (Current connection pool timeout: 10, connection limit: 1)
+[2026-05-05 20:18:48] [31merror[39m: GET /api/campaigns/stats — 
+Invalid `prisma.campaign.count()` invocation in
+/Volumes/iMac_Zee_HD2/dialer-backend/src/services/campaign.service.ts:195:21
+
+  192 export const getCampaignStats = async () => {
+  193   const [total, draft, active, paused, completed] = await Promise.all([
+  194     prisma.campaign.count(),
+→ 195     prisma.campaign.count(
+Timed out fetching a new connection from the connection pool. More info: http://pris.ly/d/connection-pool (Current connection pool timeout: 10, connection limit: 1)
+[2026-05-05 20:18:48] [31merror[39m: GET /api/campaigns — 
+Invalid `prisma.campaign.findMany()` invocation in
+/Volumes/iMac_Zee_HD2/dialer-backend/src/services/campaign.service.ts:22:21
+
+  19 }
+  20 
+  21 const [campaigns, total] = await Promise.all([
+→ 22   prisma.campaign.findMany(
+Timed out fetching a new connection from the connection pool. More info: http://pris.ly/d/connection-pool (Current connection pool timeout: 10, connection limit: 1)
+[2026-05-05 20:18:48] [31merror[39m: GET /api/campaigns — 
+Invalid `prisma.campaign.findMany()` invocation in
+/Volumes/iMac_Zee_HD2/dialer-backend/src/services/campaign.service.ts:22:21
+
+  19 }
+  20 
+  21 const [campaigns, total] = await Promise.all([
+→ 22   prisma.campaign.findMany(
+Timed out fetching a new connection from the connection pool. More info: http://pris.ly/d/connection-pool (Current connection pool timeout: 10, connection limit: 1)
+[2026-05-05 20:18:55] [31merror[39m: GET /api/campaigns/stats — 
+Invalid `prisma.campaign.count()` invocation in
+/Volumes/iMac_Zee_HD2/dialer-backend/src/services/campaign.service.ts:196:21
+
+  193 const [total, draft, active, paused, completed] = await Promise.all([
+  194   prisma.campaign.count(),
+  195   prisma.campaign.count({ where: { status: 'DRAFT'     } }),
+→ 196   prisma.campaign.count(
+Timed out fetching a new connection from the connection pool. More info: http://pris.ly/d/connection-pool (Current connection pool timeout: 10, connection limit: 1)
+[2026-05-05 20:18:55] [31merror[39m: GET /api/campaigns — 
+Invalid `prisma.campaign.findMany()` invocation in
+/Volumes/iMac_Zee_HD2/dialer-backend/src/services/campaign.service.ts:22:21
+
+  19 }
+  20 
+  21 const [campaigns, total] = await Promise.all([
+→ 22   prisma.campaign.findMany(
+Timed out fetching a new connection from the connection pool. More info: http://pris.ly/d/connection-pool (Current connection pool timeout: 10, connection limit: 1)
+[2026-05-05 20:19:11] [31merror[39m: GET /api/campaigns/stats — 
+Invalid `prisma.campaign.count()` invocation in
+/Volumes/iMac_Zee_HD2/dialer-backend/src/services/campaign.service.ts:198:21
+
+  195 prisma.campaign.count({ where: { status: 'DRAFT'     } }),
+  196 prisma.campaign.count({ where: { status: 'ACTIVE'    } }),
+  197 prisma.campaign.count({ where: { status: 'PAUSED'    } }),
+→ 198 prisma.campaign.count(
+Timed out fetching a new connection from the connection pool. More info: http://pris.ly/d/connection-pool (Current connection pool timeout: 10, connection limit: 1)
+[2026-05-05 20:19:15] [31merror[39m: GET /api/campaigns — 
+Invalid `prisma.contact.count()` invocation in
+/Volumes/iMac_Zee_HD2/dialer-backend/src/services/campaign.service.ts:44:24
+
+  41 campaigns.map(async (c) => {
+  42   const [pending, answered, missed, active] = await Promise.all([
+  43     prisma.contact.count({ where: { campaignId: c.id, status: 'PENDING' } }),
+→ 44     prisma.contact.count(
+Timed out fetching a new connection from the connection pool. More info: http://pris.ly/d/connection-pool (Current connection pool timeout: 10, connection limit: 1)
+[2026-05-05 20:19:23] [31merror[39m: GET /api/campaigns/stats — 
+Invalid `prisma.campaign.count()` invocation in
+/Volumes/iMac_Zee_HD2/dialer-backend/src/services/campaign.service.ts:198:21
+
+  195 prisma.campaign.count({ where: { status: 'DRAFT'     } }),
+  196 prisma.campaign.count({ where: { status: 'ACTIVE'    } }),
+  197 prisma.campaign.count({ where: { status: 'PAUSED'    } }),
+→ 198 prisma.campaign.count(
+Timed out fetching a new connection from the connection pool. More info: http://pris.ly/d/connection-pool (Current connection pool timeout: 10, connection limit: 1)
+[2026-05-05 20:19:25] [31merror[39m: GET /api/agents/stats — 
+Invalid `prisma.user.count()` invocation in
+/Volumes/iMac_Zee_HD2/dialer-backend/src/services/agent.service.ts:211:17
+
+  208 prisma.user.count({ where: { status: 'ONLINE'   } }),
+  209 prisma.user.count({ where: { status: 'READY'    } }),
+  210 prisma.user.count({ where: { status: 'BUSY'     } }),
+→ 211 prisma.user.count(
+Timed out fetching a new connection from the connection pool. More info: http://pris.ly/d/connection-pool (Current connection pool timeout: 10, connection limit: 1)
+[2026-05-05 20:19:25] [31merror[39m: GET /api/campaigns — 
+Invalid `prisma.campaign.findMany()` invocation in
+/Volumes/iMac_Zee_HD2/dialer-backend/src/services/campaign.service.ts:22:21
+
+  19 }
+  20 
+  21 const [campaigns, total] = await Promise.all([
+→ 22   prisma.campaign.findMany(
+Timed out fetching a new connection from the connection pool. More info: http://pris.ly/d/connection-pool (Current connection pool timeout: 10, connection limit: 1)
+[2026-05-05 20:19:26] [31merror[39m: GET /api/campaigns/stats — 
+Invalid `prisma.campaign.count()` invocation in
+/Volumes/iMac_Zee_HD2/dialer-backend/src/services/campaign.service.ts:195:21
+
+  192 export const getCampaignStats = async () => {
+  193   const [total, draft, active, paused, completed] = await Promise.all([
+  194     prisma.campaign.count(),
+→ 195     prisma.campaign.count(
+Timed out fetching a new connection from the connection pool. More info: http://pris.ly/d/connection-pool (Current connection pool timeout: 10, connection limit: 1)
+[2026-05-05 20:19:26] [31merror[39m: GET /api/agents/stats — 
+Invalid `prisma.user.count()` invocation in
+/Volumes/iMac_Zee_HD2/dialer-backend/src/services/agent.service.ts:207:17
+
+  204 
+  205 export const getAgentStats = async () => {
+  206   const [total, online, ready, busy, wrapUp, offline] = await Promise.all([
+→ 207     prisma.user.count(
+Timed out fetching a new connection from the connection pool. More info: http://pris.ly/d/connection-pool (Current connection pool timeout: 10, connection limit: 1)
+[2026-05-05 20:19:26] [31merror[39m: GET /api/agents/stats — 
+Invalid `prisma.user.count()` invocation in
+/Volumes/iMac_Zee_HD2/dialer-backend/src/services/agent.service.ts:207:17
+
+  204 
+  205 export const getAgentStats = async () => {
+  206   const [total, online, ready, busy, wrapUp, offline] = await Promise.all([
+→ 207     prisma.user.count(
+Timed out fetching a new connection from the connection pool. More info: http://pris.ly/d/connection-pool (Current connection pool timeout: 10, connection limit: 1)
+[2026-05-05 20:19:26] [31merror[39m: GET /api/agents — 
+Invalid `prisma.user.findMany()` invocation in
+/Volumes/iMac_Zee_HD2/dialer-backend/src/services/agent.service.ts:34:17
+
+  31 }
+  32 
+  33 const [agents, total] = await Promise.all([
+→ 34   prisma.user.findMany(
+Timed out fetching a new connection from the connection pool. More info: http://pris.ly/d/connection-pool (Current connection pool timeout: 10, connection limit: 1)
+[2026-05-05 20:19:26] [31merror[39m: GET /api/campaigns — 
+Invalid `prisma.contact.count()` invocation in
+/Volumes/iMac_Zee_HD2/dialer-backend/src/services/campaign.service.ts:44:24
+
+  41 campaigns.map(async (c) => {
+  42   const [pending, answered, missed, active] = await Promise.all([
+  43     prisma.contact.count({ where: { campaignId: c.id, status: 'PENDING' } }),
+→ 44     prisma.contact.count(
+Timed out fetching a new connection from the connection pool. More info: http://pris.ly/d/connection-pool (Current connection pool timeout: 10, connection limit: 1)
