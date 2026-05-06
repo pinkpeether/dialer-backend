@@ -23,13 +23,13 @@ model Contact {
 }
 
 model Campaign {
-  id        Int       @id @default(autoincrement())
-  name      String
-  status    String    @default("ACTIVE")
-  contacts  Contact[]
-  calls     Call[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id          Int       @id @default(autoincrement())
+  name        String
+  status      String    @default("ACTIVE")
+  contacts    Contact[]
+  calls       Call[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
 
 model Agent {
@@ -44,20 +44,20 @@ model Agent {
 }
 
 model Call {
-  id            Int       @id @default(autoincrement())
-  contactId     Int
-  contact       Contact   @relation(fields: [contactId], references: [id])
-  campaignId    Int
-  campaign      Campaign  @relation(fields: [campaignId], references: [id])
-  agentId       Int?
-  agent         Agent?    @relation(fields: [agentId], references: [id])
-  twilioCallSid String?
-  status        String    @default("INITIATED")
-  duration      Int?
-  recordingUrl  String?
-  recordingSid  String?
-  connectedAt   DateTime?
-  endedAt       DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id             Int       @id @default(autoincrement())
+  contactId      Int
+  contact        Contact   @relation(fields: [contactId], references: [id])
+  campaignId     Int
+  campaign       Campaign  @relation(fields: [campaignId], references: [id])
+  agentId        Int?
+  agent          Agent?    @relation(fields: [agentId], references: [id])
+  twilioCallSid  String?
+  status         String    @default("INITIATED")
+  duration       Int?
+  recordingUrl   String?
+  recordingSid   String?
+  connectedAt    DateTime?
+  endedAt        DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 }
