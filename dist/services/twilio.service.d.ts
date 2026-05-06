@@ -1,14 +1,17 @@
 export declare const initiateCall: (contactId: number, campaignId: number, agentId?: number) => Promise<{
     callRecord: {
         twilioCallSid: string;
-        status: string;
         id: number;
+        status: string;
         createdAt: Date;
         updatedAt: Date;
-        campaignId: number;
+        startedAt: Date;
         contactId: number;
+        campaignId: number;
         agentId: number | null;
         duration: number | null;
+        disposition: string | null;
+        sentiment: string | null;
         recordingUrl: string | null;
         recordingSid: string | null;
         connectedAt: Date | null;
