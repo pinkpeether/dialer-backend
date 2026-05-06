@@ -12,22 +12,14 @@ export declare const getAllCampaigns: (filters: {
             active: number;
         };
         _count: {
-            calls: number;
             contacts: number;
+            calls: number;
         };
-        description: string | null;
-        id: number;
         name: string;
-        status: import(".prisma/client").$Enums.CampaignStatus;
+        status: string;
+        id: number;
         createdAt: Date;
         updatedAt: Date;
-        dialRatio: number;
-        maxRetries: number;
-        retryDelay: number;
-        script: string | null;
-        startTime: string | null;
-        endTime: string | null;
-        timezone: string;
     }[];
     pagination: {
         total: number;
@@ -46,22 +38,14 @@ export declare const getCampaignById: (id: number) => Promise<{
         answerRate: number;
     };
     _count: {
-        calls: number;
         contacts: number;
+        calls: number;
     };
-    description: string | null;
-    id: number;
     name: string;
-    status: import(".prisma/client").$Enums.CampaignStatus;
+    status: string;
+    id: number;
     createdAt: Date;
     updatedAt: Date;
-    dialRatio: number;
-    maxRetries: number;
-    retryDelay: number;
-    script: string | null;
-    startTime: string | null;
-    endTime: string | null;
-    timezone: string;
 }>;
 export declare const createCampaign: (data: {
     name: string;
@@ -74,19 +58,11 @@ export declare const createCampaign: (data: {
     endTime?: string;
     timezone?: string;
 }) => Promise<{
-    description: string | null;
-    id: number;
     name: string;
-    status: import(".prisma/client").$Enums.CampaignStatus;
+    status: string;
+    id: number;
     createdAt: Date;
     updatedAt: Date;
-    dialRatio: number;
-    maxRetries: number;
-    retryDelay: number;
-    script: string | null;
-    startTime: string | null;
-    endTime: string | null;
-    timezone: string;
 }>;
 export declare const updateCampaign: (id: number, data: Partial<{
     name: string;
@@ -99,50 +75,26 @@ export declare const updateCampaign: (id: number, data: Partial<{
     endTime: string;
     timezone: string;
 }>) => Promise<{
-    description: string | null;
-    id: number;
     name: string;
-    status: import(".prisma/client").$Enums.CampaignStatus;
+    status: string;
+    id: number;
     createdAt: Date;
     updatedAt: Date;
-    dialRatio: number;
-    maxRetries: number;
-    retryDelay: number;
-    script: string | null;
-    startTime: string | null;
-    endTime: string | null;
-    timezone: string;
 }>;
 export declare const deleteCampaign: (id: number) => Promise<void>;
 export declare const updateCampaignStatus: (id: number, status: "DRAFT" | "ACTIVE" | "PAUSED" | "COMPLETED") => Promise<{
-    description: string | null;
-    id: number;
     name: string;
-    status: import(".prisma/client").$Enums.CampaignStatus;
+    status: string;
+    id: number;
     createdAt: Date;
     updatedAt: Date;
-    dialRatio: number;
-    maxRetries: number;
-    retryDelay: number;
-    script: string | null;
-    startTime: string | null;
-    endTime: string | null;
-    timezone: string;
 }>;
 export declare const cloneCampaign: (id: number) => Promise<{
-    description: string | null;
-    id: number;
     name: string;
-    status: import(".prisma/client").$Enums.CampaignStatus;
+    status: string;
+    id: number;
     createdAt: Date;
     updatedAt: Date;
-    dialRatio: number;
-    maxRetries: number;
-    retryDelay: number;
-    script: string | null;
-    startTime: string | null;
-    endTime: string | null;
-    timezone: string;
 }>;
 export declare const getCampaignStats: () => Promise<{
     total: number;

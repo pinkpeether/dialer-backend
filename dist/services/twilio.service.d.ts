@@ -1,22 +1,16 @@
 export declare const initiateCall: (contactId: number, campaignId: number, agentId?: number) => Promise<{
     callRecord: {
         twilioCallSid: string;
+        status: string;
         id: number;
-        status: import(".prisma/client").$Enums.CallStatus;
-        startedAt: Date;
-        agentId: number | null;
-        contactId: number;
+        createdAt: Date;
+        updatedAt: Date;
         campaignId: number;
+        contactId: number;
+        agentId: number | null;
         duration: number | null;
         recordingUrl: string | null;
         recordingSid: string | null;
-        transcript: string | null;
-        sentiment: string | null;
-        sentimentScore: number | null;
-        disposition: import(".prisma/client").$Enums.DispositionType | null;
-        dispositionNote: string | null;
-        isWhispered: boolean;
-        isBarged: boolean;
         connectedAt: Date | null;
         endedAt: Date | null;
     };

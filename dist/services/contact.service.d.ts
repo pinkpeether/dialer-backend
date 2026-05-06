@@ -6,17 +6,14 @@ export declare const getAllContacts: (filters: {
     limit?: number;
 }) => Promise<{
     contacts: {
-        id: number;
         email: string | null;
-        name: string;
+        name: string | null;
         phone: string;
-        status: import(".prisma/client").$Enums.ContactStatus;
+        status: string;
+        id: number;
         createdAt: Date;
-        _count: {
-            calls: number;
-        };
-        campaignId: number;
-        company: string | null;
+        updatedAt: Date;
+        campaignId: number | null;
         retryCount: number;
         lastCalledAt: Date | null;
     }[];
@@ -28,35 +25,14 @@ export declare const getAllContacts: (filters: {
     };
 }>;
 export declare const getContactById: (id: number) => Promise<{
-    campaign: {
-        id: number;
-        name: string;
-    };
-    calls: {
-        id: number;
-        status: import(".prisma/client").$Enums.CallStatus;
-        startedAt: Date;
-        duration: number | null;
-        recordingUrl: string | null;
-        sentiment: string | null;
-        disposition: import(".prisma/client").$Enums.DispositionType | null;
-        endedAt: Date | null;
-        agent: {
-            agentCode: string;
-            name: string;
-        } | null;
-    }[];
-} & {
-    id: number;
     email: string | null;
-    name: string;
+    name: string | null;
     phone: string;
-    status: import(".prisma/client").$Enums.ContactStatus;
+    status: string;
+    id: number;
     createdAt: Date;
     updatedAt: Date;
-    campaignId: number;
-    company: string | null;
-    notes: string | null;
+    campaignId: number | null;
     retryCount: number;
     lastCalledAt: Date | null;
 }>;
@@ -68,16 +44,14 @@ export declare const createContact: (data: {
     notes?: string;
     campaignId: number;
 }) => Promise<{
-    id: number;
     email: string | null;
-    name: string;
+    name: string | null;
     phone: string;
-    status: import(".prisma/client").$Enums.ContactStatus;
+    status: string;
+    id: number;
     createdAt: Date;
     updatedAt: Date;
-    campaignId: number;
-    company: string | null;
-    notes: string | null;
+    campaignId: number | null;
     retryCount: number;
     lastCalledAt: Date | null;
 }>;
@@ -89,16 +63,14 @@ export declare const updateContact: (id: number, data: Partial<{
     notes: string;
     status: string;
 }>) => Promise<{
-    id: number;
     email: string | null;
-    name: string;
+    name: string | null;
     phone: string;
-    status: import(".prisma/client").$Enums.ContactStatus;
+    status: string;
+    id: number;
     createdAt: Date;
     updatedAt: Date;
-    campaignId: number;
-    company: string | null;
-    notes: string | null;
+    campaignId: number | null;
     retryCount: number;
     lastCalledAt: Date | null;
 }>;
@@ -110,12 +82,7 @@ export declare const uploadCSV: (campaignId: number, fileBuffer: Buffer) => Prom
     errors: number;
     total: number;
 }>;
-export declare const addToDNC: (phone: string, reason?: string) => Promise<{
-    id: number;
-    phone: string;
-    reason: string | null;
-    addedAt: Date;
-}>;
+export declare const addToDNC: (phone: string, reason?: string) => Promise<any>;
 export declare const getContactStats: (campaignId?: number) => Promise<{
     total: number;
     pending: number;
