@@ -10,8 +10,7 @@ RUN npm ci
 COPY prisma ./prisma
 RUN npx prisma generate
 
-COPY . .
-RUN npm run build
+COPY dist ./dist
 
 EXPOSE 3000
 
