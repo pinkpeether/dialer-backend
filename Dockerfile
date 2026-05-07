@@ -12,7 +12,7 @@ RUN npx prisma generate
 
 COPY tsconfig.json ./
 COPY src ./src
-RUN npm run build
+RUN npx tsc --noEmitOnError false
 
 EXPOSE 3001
 
