@@ -9,7 +9,7 @@ const prisma_1 = __importDefault(require("../lib/prisma"));
 const errorHandler_1 = require("../middleware/errorHandler");
 const logger_1 = __importDefault(require("../utils/logger"));
 const client = (0, twilio_1.default)(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
+const BASE_URL = process.env.BASE_URL || 'http://localhost:3001';
 // ── Initiate outbound call ──
 const initiateCall = async (contactId, campaignId, agentId) => {
     const contact = await prisma_1.default.contact.findUnique({ where: { id: contactId } });

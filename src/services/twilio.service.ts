@@ -8,7 +8,7 @@ const client = twilio(
   process.env.TWILIO_AUTH_TOKEN!
 )
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
+const BASE_URL = process.env.BASE_URL || 'http://localhost:3001'
 
 // ── Initiate outbound call ──
 export const initiateCall = async (
