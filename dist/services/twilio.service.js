@@ -8,8 +8,15 @@ const twilio_1 = __importDefault(require("twilio"));
 const prisma_1 = __importDefault(require("../lib/prisma"));
 const errorHandler_1 = require("../middleware/errorHandler");
 const logger_1 = __importDefault(require("../utils/logger"));
-const client = (0, twilio_1.default)(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3001';
+// Lazy getter — prevents startup crash if TWILIO_* env vars are missing
+const getClient = () => {
+    const sid = process.env.TWILIO_ACCOUNT_SID;
+    const token = process.env.TWILIO_AUTH_TOKEN;
+    if (!sid || !token)
+        throw new errorHandler_1.AppError('Twilio credentials not configured', 500);
+    return (0, twilio_1.default)(sid, token);
+};
 // ── Initiate outbound call ──
 const initiateCall = async (contactId, campaignId, agentId) => {
     const contact = await prisma_1.default.contact.findUnique({ where: { id: contactId } });
@@ -26,6 +33,7 @@ const initiateCall = async (contactId, campaignId, agentId) => {
         data: { status: 'CALLING', lastCalledAt: new Date() }
     });
     try {
+        const client = getClient();
         const call = await client.calls.create({
             to: contact.phone,
             from: process.env.TWILIO_PHONE_NUMBER,
@@ -56,6 +64,7 @@ const initiateCall = async (contactId, campaignId, agentId) => {
 exports.initiateCall = initiateCall;
 // ── Hangup a call ──
 const hangupCall = async (twilioCallSid) => {
+    const client = getClient();
     await client.calls(twilioCallSid).update({ status: 'completed' });
     logger_1.default.info(`📵 Call hung up: ${twilioCallSid}`);
 };
@@ -75,7 +84,7 @@ const generateConnectTwiML = (callId, agentId) => {
     }
     else {
         response.say({ voice: 'alice', language: 'en-US' }, 'Hello, please leave a message after the beep.');
-        response.record({ maxLength: 30, playBeep: true });
+        response.record({ maxLength: 30, playBeek: true });
         response.hangup();
     }
     return response.toString();
