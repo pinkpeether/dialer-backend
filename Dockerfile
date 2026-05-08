@@ -11,5 +11,6 @@ RUN echo "Cache bust: $CACHE_BUST"
 COPY src ./src
 RUN npx tsc --noEmitOnError false
 RUN ls -la dist/
+RUN mkdir -p logs
 EXPOSE 3001
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
