@@ -6,8 +6,6 @@ RUN npm ci
 COPY prisma ./prisma
 RUN npx prisma generate
 COPY tsconfig.json ./
-ARG CACHE_BUST=3
-RUN echo "Cache bust: $CACHE_BUST"
 COPY src ./src
 RUN npx tsc --noEmitOnError false
 RUN ls -la dist/
