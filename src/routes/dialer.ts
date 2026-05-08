@@ -10,7 +10,9 @@ router.use('/start',           authenticate)
 router.use('/stop',            authenticate)
 router.use('/active',          authenticate)
 router.use('/call/manual',     authenticate)
+router.use('/call/adhoc',      authenticate)
 router.use('/call/hangup',     authenticate)
+router.use('/call/dtmf',       authenticate)
 
 // Agent softphone token
 router.get('/token', DialerController.getAccessToken)
@@ -29,8 +31,16 @@ router.get('/active',
   DialerController.getActiveCampaigns
 )
 
-// Manual call
+// Manual call (requires contactId + campaignId)
 router.post('/call/manual',  DialerController.makeManualCall)
+
+// Ad-hoc call (direct phone number — no contact/campaign required)
+router.post('/call/adhoc',   DialerController.makeAdhocCall)
+
+// DTMF — send keypad digits to active call
+router.post('/call/dtmf',    DialerController.sendDTMF)
+
+// Hangup
 router.post('/call/hangup',  DialerController.hangupCall)
 
 // ── Twilio TwiML endpoints (no auth — Twilio calls these) ──

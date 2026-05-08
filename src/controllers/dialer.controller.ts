@@ -56,7 +56,6 @@ export const twimlConnect = async (
     const callId  = Number(req.params.callId)
     const agentId = await DialerService.routeCallToAgent(callId)
     const twiml   = TwilioService.generateConnectTwiML(callId, agentId || undefined)
-
     res.type('text/xml')
     return res.send(twiml)
   } catch (err) { return next(err) }
@@ -69,7 +68,6 @@ export const twimlAgent = async (
   try {
     const agentId = Number(req.params.agentId)
     const twiml   = TwilioService.generateAgentTwiML(agentId)
-
     res.type('text/xml')
     return res.send(twiml)
   } catch (err) { return next(err) }
@@ -85,7 +83,7 @@ export const webhookStatus = async (
     return res.status(200).send('OK')
   } catch (err) {
     logger.error(`Webhook error: ${err}`)
-    return res.status(200).send('OK') // Always 200 to Twilio
+    return res.status(200).send('OK')
   }
 }
 
@@ -117,7 +115,7 @@ export const webhookAMD = async (
   }
 }
 
-// Manual single call
+// Manual call (campaign-based, contactId + campaignId required)
 export const makeManualCall = async (
   req: AuthRequest, res: Response, next: NextFunction
 ) => {
@@ -132,6 +130,34 @@ export const makeManualCall = async (
       req.user!.id
     )
     return sendSuccess(res, result, 'Call initiated')
+  } catch (err) { return next(err) }
+}
+
+// Ad-hoc call — direct phone number, no contact/campaign needed
+export const makeAdhocCall = async (
+  req: AuthRequest, res: Response, next: NextFunction
+) => {
+  try {
+    const { phone, note } = req.body
+    if (!phone) return sendError(res, 'phone number required', 400)
+    const result = await TwilioService.initiateAdhocCall(
+      String(phone).trim(),
+      req.user!.id,
+      note ? String(note) : undefined
+    )
+    return sendSuccess(res, result, 'Ad-hoc call initiated')
+  } catch (err) { return next(err) }
+}
+
+// Send DTMF digits to active call
+export const sendDTMF = async (
+  req: AuthRequest, res: Response, next: NextFunction
+) => {
+  try {
+    const { twilioCallSid, digits } = req.body
+    if (!twilioCallSid || !digits) return sendError(res, 'twilioCallSid and digits required', 400)
+    await TwilioService.sendDTMF(String(twilioCallSid), String(digits))
+    return sendSuccess(res, null, 'DTMF sent')
   } catch (err) { return next(err) }
 }
 

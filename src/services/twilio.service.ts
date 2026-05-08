@@ -13,7 +13,7 @@ const getClient = () => {
   return twilio(sid, token)
 }
 
-// ── Initiate outbound call ──
+// ── Initiate outbound call (campaign-based) ──
 export const initiateCall = async (
   contactId:  number,
   campaignId: number,
@@ -66,11 +66,92 @@ export const initiateCall = async (
   }
 }
 
+// ── Initiate ad-hoc call (direct phone number, no contact/campaign required) ──
+export const initiateAdhocCall = async (
+  phone:   string,
+  agentId: number,
+  note?:   string
+) => {
+  // Create a minimal contact record for tracking
+  const contact = await prisma.contact.create({
+    data: {
+      phone,
+      name:   note || 'Ad-hoc Call',
+      status: 'CALLING',
+      lastCalledAt: new Date(),
+    }
+  })
+
+  // Find or create a default ad-hoc campaign
+  let campaign = await prisma.campaign.findFirst({
+    where: { name: '__adhoc__' }
+  })
+  if (!campaign) {
+    campaign = await prisma.campaign.create({
+      data: {
+        name:   '__adhoc__',
+        description: 'System campaign for ad-hoc manual calls',
+        status: 'ACTIVE',
+      }
+    })
+  }
+
+  const callRecord = await prisma.call.create({
+    data: {
+      contactId:  contact.id,
+      campaignId: campaign.id,
+      agentId,
+      status: 'INITIATED',
+    }
+  })
+
+  try {
+    const client = getClient()
+    const call = await client.calls.create({
+      to:   phone,
+      from: process.env.TWILIO_PHONE_NUMBER!,
+      url:  `${BASE_URL}/api/dialer/twiml/connect/${callRecord.id}`,
+      statusCallback:              `${BASE_URL}/api/dialer/webhook/status/${callRecord.id}`,
+      statusCallbackMethod:        'POST',
+      statusCallbackEvent:         ['initiated','ringing','answered','completed'],
+      record:                      true,
+      recordingStatusCallback:     `${BASE_URL}/api/dialer/webhook/recording/${callRecord.id}`,
+      recordingStatusCallbackMethod: 'POST',
+    })
+
+    await prisma.call.update({
+      where: { id: callRecord.id },
+      data:  { twilioCallSid: call.sid, status: 'RINGING' }
+    })
+
+    logger.info(`📞 Ad-hoc call initiated: ${call.sid} → ${phone}`)
+    return {
+      callSid:    call.sid,
+      callId:     callRecord.id,
+      contactId:  contact.id,
+      phone,
+    }
+  } catch (err) {
+    await prisma.call.update({ where: { id: callRecord.id }, data: { status: 'FAILED' } })
+    await prisma.contact.update({ where: { id: contact.id }, data: { status: 'NO_ANSWER' as never } })
+    throw err
+  }
+}
+
 // ── Hangup a call ──
 export const hangupCall = async (twilioCallSid: string) => {
   const client = getClient()
   await client.calls(twilioCallSid).update({ status: 'completed' })
   logger.info(`📵 Call hung up: ${twilioCallSid}`)
+}
+
+// ── Send DTMF digits to active call ──
+export const sendDTMF = async (twilioCallSid: string, digits: string) => {
+  const client = getClient()
+  await client.calls(twilioCallSid).update({
+    twiml: `<Response><Play digits="${digits}"/></Response>`,
+  })
+  logger.info(`🔢 DTMF sent to ${twilioCallSid}: ${digits}`)
 }
 
 // ── Generate TwiML to connect agent ──
