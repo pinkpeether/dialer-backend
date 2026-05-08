@@ -3,12 +3,15 @@ import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import logger from '../utils/logger'
 
-const client = twilio(
-  process.env.TWILIO_ACCOUNT_SID!,
-  process.env.TWILIO_AUTH_TOKEN!
-)
-
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3001'
+
+// Lazy getter — prevents startup crash if TWILIO_* env vars are missing
+const getClient = () => {
+  const sid   = process.env.TWILIO_ACCOUNT_SID
+  const token = process.env.TWILIO_AUTH_TOKEN
+  if (!sid || !token) throw new AppError('Twilio credentials not configured', 500)
+  return twilio(sid, token)
+}
 
 // ── Initiate outbound call ──
 export const initiateCall = async (
@@ -32,6 +35,7 @@ export const initiateCall = async (
   })
 
   try {
+    const client = getClient()
     const call = await client.calls.create({
       to:   contact.phone,
       from: process.env.TWILIO_PHONE_NUMBER!,
@@ -64,6 +68,7 @@ export const initiateCall = async (
 
 // ── Hangup a call ──
 export const hangupCall = async (twilioCallSid: string) => {
+  const client = getClient()
   await client.calls(twilioCallSid).update({ status: 'completed' })
   logger.info(`📵 Call hung up: ${twilioCallSid}`)
 }
@@ -84,7 +89,7 @@ export const generateConnectTwiML = (callId: number, agentId?: number): string =
   } else {
     response.say({ voice: 'alice', language: 'en-US' },
       'Hello, please leave a message after the beep.')
-    response.record({ maxLength: 30, playBeep: true })
+    response.record({ maxLength: 30, playBeek: true } as never)
     response.hangup()
   }
 
