@@ -8,83 +8,153 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+// ── Enumerations ───────────────────────────────────────────────────────────
+
+/// User roles supported by the application. Admin users manage campaigns
+/// and agents, while agent users handle calls. Add new roles here when
+/// expanding the system.
+enum UserRole {
+  ADMIN
+  AGENT
+}
+
+/// Agent/user presence status values. These map directly to the
+/// agent availability indicator shown in the UI.
+enum UserStatus {
+  AVAILABLE
+  ON_CALL
+  BREAK
+  OFFLINE
+}
+
+/// Campaign lifecycle statuses.
+enum CampaignStatus {
+  DRAFT
+  RUNNING
+  PAUSED
+  COMPLETED
+}
+
+/// Possible statuses of a contact as it moves through the dialer.
+enum ContactStatus {
+  PENDING
+  IN_QUEUE
+  IN_CALL
+  COMPLETED
+  FAILED
+  CALLBACK
+}
+
+/// Discrete statuses for a call record. These correspond to Twilio or other
+/// provider statuses but are normalized here.
+enum CallStatus {
+  INITIATED
+  RINGING
+  ANSWERED
+  NO_ANSWER
+  FAILED
+  COMPLETED
+}
+
+/// Disposition (outcome) recorded by agents after a call ends.
+enum CallDisposition {
+  ANSWERED
+  NO_ANSWER
+  VOICEMAIL
+  CALLBACK
+  WRONG_NUMBER
+  DO_NOT_CALL
+}
+
+/// Status for an agent's Socket.IO session.
+enum AgentSessionStatus {
+  ACTIVE
+  IDLE
+  DISCONNECTED
+}
+
+// ── Models ─────────────────────────────────────────────────────────────────
+
 model User {
-  id          Int      @id @default(autoincrement())
-  name        String
-  email       String   @unique
-  password    String
-  agentCode   String?  @unique
-  extension   String?
-  phone       String?
-  isActive    Boolean  @default(true)
-  role        String   @default("AGENT")
-  status      String   @default("OFFLINE")
-  calls       Call[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           Int        @id @default(autoincrement())
+  name         String
+  email        String     @unique
+  passwordHash String
+  role         UserRole   @default(AGENT)
+  status       UserStatus @default(OFFLINE)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  // Relations
+  calls        Call[]
+  sessions     AgentSession[]
 }
 
 model Campaign {
-  id          Int       @id @default(autoincrement())
+  id          Int           @id @default(autoincrement())
   name        String
-  description String?
-  status      String    @default("ACTIVE")
-  dialRatio   Int       @default(1)
-  maxRetries  Int       @default(3)
-  retryDelay  Int       @default(60)
-  script      String?
-  startTime   String?
-  endTime     String?
-  timezone    String    @default("UTC")
+  status      CampaignStatus @default(DRAFT)
+  callerId    String
+  dialingRatio Int           @default(1)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  // Relations
   contacts    Contact[]
   calls       Call[]
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
 }
 
 model Contact {
-  id           Int       @id @default(autoincrement())
-  phone        String
-  name         String?
-  email        String?
-  company      String?
-  status       String    @default("PENDING")
-  retryCount   Int       @default(0)
-  lastCalledAt DateTime?
-  campaignId   Int?
-  campaign     Campaign? @relation(fields: [campaignId], references: [id])
-  calls        Call[]
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id         Int           @id @default(autoincrement())
+  name       String?
+  phone      String
+  email      String?
+  status     ContactStatus @default(PENDING)
+  callbackAt DateTime?
+  notes      String?
+  retryCount Int           @default(0)
+  maxRetries Int           @default(3)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  // Relations
+  campaignId Int?
+  campaign   Campaign?     @relation(fields: [campaignId], references: [id])
+  calls      Call[]
 }
 
 model Call {
-  id             Int       @id @default(autoincrement())
+  id             Int           @id @default(autoincrement())
   contactId      Int
-  contact        Contact   @relation(fields: [contactId], references: [id])
   campaignId     Int
-  campaign       Campaign  @relation(fields: [campaignId], references: [id])
   agentId        Int?
-  agent          User?     @relation(fields: [agentId], references: [id])
-  twilioCallSid  String?
-  status         String    @default("INITIATED")
+  providerCallId String?
+  status         CallStatus    @default(INITIATED)
+  disposition    CallDisposition?
   duration       Int?
-  disposition    String?
-  sentiment      String?
-  recordingUrl   String?
-  recordingSid   String?
-  connectedAt    DateTime?
+  startedAt      DateTime      @default(now())
   endedAt        DateTime?
-  startedAt      DateTime  @default(now())
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  // Relations
+  contact        Contact       @relation(fields: [contactId], references: [id])
+  campaign       Campaign      @relation(fields: [campaignId], references: [id])
+  agent          User?         @relation(fields: [agentId], references: [id])
 }
 
+model AgentSession {
+  id             Int              @id @default(autoincrement())
+  agentId        Int
+  socketId       String
+  status         AgentSessionStatus @default(IDLE)
+  connectedAt    DateTime          @default(now())
+  disconnectedAt DateTime?
+  // Relations
+  agent          User             @relation(fields: [agentId], references: [id])
+}
+
+/// Do Not Call list entries. When a phone number appears in this table it
+/// should never be dialled again by the dialer engine.
 model DNCList {
   id        Int      @id @default(autoincrement())
   phone     String   @unique
   reason    String?
   createdAt DateTime @default(now())
-
-  @@map("dNCList")
 }

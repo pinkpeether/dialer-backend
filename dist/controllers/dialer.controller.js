@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.hangupCall = exports.makeManualCall = exports.webhookAMD = exports.webhookRecording = exports.webhookStatus = exports.twimlAgent = exports.twimlConnect = exports.getAccessToken = exports.getActiveCampaigns = exports.stopCampaign = exports.startCampaign = void 0;
+exports.hangupCall = exports.sendDTMF = exports.makeAdhocCall = exports.makeManualCall = exports.webhookAMD = exports.webhookRecording = exports.webhookStatus = exports.twimlAgent = exports.twimlConnect = exports.getAccessToken = exports.getActiveCampaigns = exports.stopCampaign = exports.startCampaign = void 0;
 const DialerService = __importStar(require("../services/dialer.service"));
 const TwilioService = __importStar(require("../services/twilio.service"));
 const response_1 = require("../utils/response");
@@ -121,7 +121,7 @@ const webhookStatus = async (req, res, next) => {
     }
     catch (err) {
         logger_1.default.error(`Webhook error: ${err}`);
-        return res.status(200).send('OK'); // Always 200 to Twilio
+        return res.status(200).send('OK');
     }
 };
 exports.webhookStatus = webhookStatus;
@@ -151,7 +151,7 @@ const webhookAMD = async (req, res, next) => {
     }
 };
 exports.webhookAMD = webhookAMD;
-// Manual single call
+// Manual call (campaign-based, contactId + campaignId required)
 const makeManualCall = async (req, res, next) => {
     try {
         const { contactId, campaignId } = req.body;
@@ -166,6 +166,34 @@ const makeManualCall = async (req, res, next) => {
     }
 };
 exports.makeManualCall = makeManualCall;
+// Ad-hoc call — direct phone number, no contact/campaign needed
+const makeAdhocCall = async (req, res, next) => {
+    try {
+        const { phone, note } = req.body;
+        if (!phone)
+            return (0, response_1.sendError)(res, 'phone number required', 400);
+        const result = await TwilioService.initiateAdhocCall(String(phone).trim(), req.user.id, note ? String(note) : undefined);
+        return (0, response_1.sendSuccess)(res, result, 'Ad-hoc call initiated');
+    }
+    catch (err) {
+        return next(err);
+    }
+};
+exports.makeAdhocCall = makeAdhocCall;
+// Send DTMF digits to active call
+const sendDTMF = async (req, res, next) => {
+    try {
+        const { twilioCallSid, digits } = req.body;
+        if (!twilioCallSid || !digits)
+            return (0, response_1.sendError)(res, 'twilioCallSid and digits required', 400);
+        await TwilioService.sendDTMF(String(twilioCallSid), String(digits));
+        return (0, response_1.sendSuccess)(res, null, 'DTMF sent');
+    }
+    catch (err) {
+        return next(err);
+    }
+};
+exports.sendDTMF = sendDTMF;
 // Hangup call
 const hangupCall = async (req, res, next) => {
     try {

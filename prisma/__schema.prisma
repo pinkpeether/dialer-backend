@@ -1,0 +1,90 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id          Int      @id @default(autoincrement())
+  name        String
+  email       String   @unique
+  password    String
+  agentCode   String?  @unique
+  extension   String?
+  phone       String?
+  isActive    Boolean  @default(true)
+  role        String   @default("AGENT")
+  status      String   @default("OFFLINE")
+  calls       Call[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Campaign {
+  id          Int       @id @default(autoincrement())
+  name        String
+  description String?
+  status      String    @default("ACTIVE")
+  dialRatio   Int       @default(1)
+  maxRetries  Int       @default(3)
+  retryDelay  Int       @default(60)
+  script      String?
+  startTime   String?
+  endTime     String?
+  timezone    String    @default("UTC")
+  contacts    Contact[]
+  calls       Call[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Contact {
+  id           Int       @id @default(autoincrement())
+  phone        String
+  name         String?
+  email        String?
+  company      String?
+  status       String    @default("PENDING")
+  retryCount   Int       @default(0)
+  lastCalledAt DateTime?
+  campaignId   Int?
+  campaign     Campaign? @relation(fields: [campaignId], references: [id])
+  calls        Call[]
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model Call {
+  id             Int       @id @default(autoincrement())
+  contactId      Int
+  contact        Contact   @relation(fields: [contactId], references: [id])
+  campaignId     Int
+  campaign       Campaign  @relation(fields: [campaignId], references: [id])
+  agentId        Int?
+  agent          User?     @relation(fields: [agentId], references: [id])
+  twilioCallSid  String?
+  status         String    @default("INITIATED")
+  duration       Int?
+  disposition    String?
+  sentiment      String?
+  recordingUrl   String?
+  recordingSid   String?
+  connectedAt    DateTime?
+  endedAt        DateTime?
+  startedAt      DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model DNCList {
+  id        Int      @id @default(autoincrement())
+  phone     String   @unique
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@map("dNCList")
+}

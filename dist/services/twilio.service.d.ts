@@ -19,7 +19,14 @@ export declare const initiateCall: (contactId: number, campaignId: number, agent
     };
     twilioCall: import("twilio/lib/rest/api/v2010/account/call").CallInstance;
 }>;
+export declare const initiateAdhocCall: (phone: string, agentId: number, note?: string) => Promise<{
+    callSid: string;
+    callId: number;
+    contactId: number;
+    phone: string;
+}>;
 export declare const hangupCall: (twilioCallSid: string) => Promise<void>;
+export declare const sendDTMF: (twilioCallSid: string, digits: string) => Promise<void>;
 export declare const generateConnectTwiML: (callId: number, agentId?: number) => string;
 export declare const generateAgentTwiML: (agentId: number) => string;
 export declare const generateWhisperTwiML: (conferenceRoom: string) => string;
