@@ -1,7 +1,11 @@
 import { Router } from 'express'
+import type { Response, NextFunction } from 'express'
 import * as AgentController from '../controllers/agent.controller'
+import * as AgentService from '../services/agent.service'
 import { authenticate, authorize } from '../middleware/auth'
+import type { AuthRequest } from '../middleware/auth'
 import { validate } from '../middleware/validate'
+import { sendSuccess } from '../utils/response'
 import {
   createAgentSchema,
   updateAgentSchema,
@@ -18,6 +22,22 @@ router.use(authenticate)
 router.get('/stats',
   authorize('ADMIN', 'SUPERVISOR'),
   AgentController.getAgentStats
+)
+
+// Update own status — current logged-in agent/admin/supervisor
+// IMPORTANT: keep this before /:id routes.
+router.patch('/me/status',
+  authorize('ADMIN', 'SUPERVISOR', 'AGENT'),
+  validate(updateStatusSchema),
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.id
+      const agent = await AgentService.updateAgentStatus(userId, req.body.status)
+      return sendSuccess(res, agent, 'Agent status updated')
+    } catch (err) {
+      return next(err)
+    }
+  }
 )
 
 // List all agents — Admin + Supervisor
