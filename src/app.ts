@@ -8,6 +8,7 @@ import agentRoutes    from './routes/agents'
 import campaignRoutes from './routes/campaigns'
 import contactRoutes  from './routes/contacts'
 import dialerRoutes   from './routes/dialer'
+import './services/dialerScheduler'
 
 const app = express()
 const httpServer = createServer(app)

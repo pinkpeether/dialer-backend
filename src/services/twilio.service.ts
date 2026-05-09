@@ -92,6 +92,8 @@ export const initiateAdhocCall = async (
         name:   '__adhoc__',
         description: 'System campaign for ad-hoc manual calls',
         status: 'ACTIVE',
+        callerId: process.env.TWILIO_PHONE_NUMBER || '',
+        dialingRatio: 1,
       }
     })
   }

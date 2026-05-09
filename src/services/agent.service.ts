@@ -107,7 +107,7 @@ export const createAgent = async (data: {
       agentCode,
       name:      data.name,
       email:     data.email,
-      password:  hashedPassword,
+      passwordHash: hashedPassword,
       role:      data.role || 'AGENT',
       extension: data.extension,
       phone:     data.phone,
@@ -198,7 +198,7 @@ export const resetAgentPassword = async (
   const hashed = await bcrypt.hash(newPassword, 12)
   await prisma.user.update({
     where: { id },
-    data: { password: hashed },
+    data: { passwordHash: hashed },
   })
 }
 

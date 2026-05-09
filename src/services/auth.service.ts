@@ -39,7 +39,7 @@ export const registerUser = async (data: {
       agentCode,
       name: data.name,
       email: data.email,
-      password: hashedPassword,
+      passwordHash: hashedPassword,
       role: data.role || 'AGENT',
       extension: data.extension,
       phone: data.phone,
@@ -75,7 +75,7 @@ export const loginUser = async (email: string, password: string) => {
   if (!user.isActive) throw new AppError('Account is deactivated', 403)
 
   // Check password
-  const isMatch = await bcrypt.compare(password, user.password)
+  const isMatch = await bcrypt.compare(password, user.passwordHash)
   if (!isMatch) throw new AppError('Invalid email or password', 401)
 
   // Update status to ONLINE
@@ -145,7 +145,7 @@ export const seedAdmin = async () => {
       agentCode: 'AGT-000',
       name: 'Super Admin',
       email: process.env.ADMIN_EMAIL!,
-      password: hashedPassword,
+      passwordHash: hashedPassword,
       role: 'ADMIN',
       status: 'ONLINE',
     },

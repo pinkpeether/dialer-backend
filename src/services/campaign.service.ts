@@ -75,7 +75,7 @@ export const getCampaignById = async (id: number) => {
     prisma.contact.count({ where: { campaignId: id, status: 'CALLING'  } }),
   ])
 
-  const total     = pending + answered + missed + calling
+  const total      = pending + answered + missed + calling
   const answerRate = total > 0 ? Math.round((answered / total) * 100) : 0
 
   return {
@@ -87,7 +87,8 @@ export const getCampaignById = async (id: number) => {
 export const createCampaign = async (data: {
   name: string
   description?: string
-  dialRatio?: number
+  callerId?: string
+  dialingRatio?: number
   maxRetries?: number
   retryDelay?: number
   script?: string
@@ -97,16 +98,17 @@ export const createCampaign = async (data: {
 }) => {
   return await prisma.campaign.create({
     data: {
-      name:        data.name,
-      description: data.description,
-      dialRatio:   data.dialRatio   || 3,
-      maxRetries:  data.maxRetries  || 3,
-      retryDelay:  data.retryDelay  || 30,
-      script:      data.script,
-      startTime:   data.startTime,
-      endTime:     data.endTime,
-      timezone:    data.timezone    || 'Asia/Karachi',
-      status:      'DRAFT',
+      name:         data.name,
+      description:  data.description,
+      callerId:     data.callerId ?? '',
+      dialingRatio: data.dialingRatio ?? 3,
+      maxRetries:   data.maxRetries ?? 3,
+      retryDelay:   data.retryDelay ?? 30,
+      script:       data.script,
+      startTime:    data.startTime,
+      endTime:      data.endTime,
+      timezone:     data.timezone ?? 'Asia/Karachi',
+      status:       'DRAFT',
     }
   })
 }
@@ -116,7 +118,8 @@ export const updateCampaign = async (
   data: Partial<{
     name: string
     description: string
-    dialRatio: number
+    callerId: string
+    dialingRatio: number
     maxRetries: number
     retryDelay: number
     script: string
@@ -175,16 +178,17 @@ export const cloneCampaign = async (id: number) => {
 
   return await prisma.campaign.create({
     data: {
-      name:        `${original.name} (Copy)`,
-      description: original.description ?? undefined,
-      dialRatio:   original.dialRatio,
-      maxRetries:  original.maxRetries,
-      retryDelay:  original.retryDelay,
-      script:      original.script ?? undefined,
-      startTime:   original.startTime ?? undefined,
-      endTime:     original.endTime ?? undefined,
-      timezone:    original.timezone,
-      status:      'DRAFT',
+      name:         `${original.name} (Copy)`,
+      description:  original.description ?? undefined,
+      callerId:     original.callerId ?? '',
+      dialingRatio: original.dialingRatio ?? 3,
+      maxRetries:   original.maxRetries,
+      retryDelay:   original.retryDelay,
+      script:       original.script ?? undefined,
+      startTime:    original.startTime ?? undefined,
+      endTime:      original.endTime ?? undefined,
+      timezone:     original.timezone,
+      status:       'DRAFT',
     }
   })
 }

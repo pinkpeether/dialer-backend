@@ -55,7 +55,7 @@ const dialNext = async (campaignId: number) => {
     }
 
     // Calculate simultaneous dials
-    const simultaneousDials = availableAgents.length * campaign.dialRatio
+    const simultaneousDials = availableAgents.length * campaign.dialingRatio
 
     // Get pending contacts
     const pendingContacts = await prisma.contact.findMany({
