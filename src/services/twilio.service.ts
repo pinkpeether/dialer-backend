@@ -3,8 +3,11 @@ import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import logger from '../utils/logger'
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:3001'
+const BASE_URL = process.env.WEBHOOK_BASE_URL || process.env.BASE_URL || 'http://localhost:3001'
+const getTwilioFromNumber = () => process.env.TWILIO_FROM_NUMBER || process.env.TWILIO_PHONE_NUMBER || ''
 
+// Legacy Twilio API adapter. Universal SIP mode lives in the frontend SIP engine;
+// this file remains only for backwards-compatible API/TwiML workflows.
 // Lazy getter — prevents startup crash if TWILIO_* env vars are missing
 const getClient = () => {
   const sid   = process.env.TWILIO_ACCOUNT_SID
@@ -38,7 +41,7 @@ export const initiateCall = async (
     const client = getClient()
     const call = await client.calls.create({
       to:   contact.phone,
-      from: process.env.TWILIO_PHONE_NUMBER!,
+      from: getTwilioFromNumber(),
       url:  `${BASE_URL}/api/dialer/twiml/connect/${callRecord.id}`,
       statusCallback:              `${BASE_URL}/api/dialer/webhook/status/${callRecord.id}`,
       statusCallbackMethod:        'POST',
@@ -86,13 +89,16 @@ export const initiateAdhocCall = async (
   let campaign = await prisma.campaign.findFirst({
     where: { name: '__adhoc__' }
   })
-  if (!campaign) {
+    if (!campaign) {
     campaign = await prisma.campaign.create({
       data: {
-        name:   '__adhoc__',
+        name:        '__adhoc__',
         description: 'System campaign for ad-hoc manual calls',
-        status: 'ACTIVE',
-        callerId: process.env.TWILIO_PHONE_NUMBER || '',
+        status:      'ACTIVE',
+        callerId:
+          process.env.TWILIO_FROM_NUMBER ||
+          process.env.TWILIO_PHONE_NUMBER ||
+          'LEGACY_TWILIO',
         dialingRatio: 1,
       }
     })
@@ -111,7 +117,7 @@ export const initiateAdhocCall = async (
     const client = getClient()
     const call = await client.calls.create({
       to:   phone,
-      from: process.env.TWILIO_PHONE_NUMBER!,
+      from: getTwilioFromNumber(),
       url:  `${BASE_URL}/api/dialer/twiml/connect/${callRecord.id}`,
       statusCallback:              `${BASE_URL}/api/dialer/webhook/status/${callRecord.id}`,
       statusCallbackMethod:        'POST',

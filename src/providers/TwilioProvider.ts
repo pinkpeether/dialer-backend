@@ -9,13 +9,13 @@ export class TwilioProvider implements CallProvider {
   constructor() {
     const accountSid = process.env.TWILIO_ACCOUNT_SID
     const authToken  = process.env.TWILIO_AUTH_TOKEN
-    this.from        = process.env.TWILIO_FROM_NUMBER || ''
-    this.webhookBaseUrl = process.env.WEBHOOK_BASE_URL || ''
+    this.from        = process.env.TWILIO_FROM_NUMBER || process.env.TWILIO_PHONE_NUMBER || ''
+    this.webhookBaseUrl = process.env.WEBHOOK_BASE_URL || process.env.BASE_URL || ''
     if (!accountSid || !authToken) {
       throw new Error('Twilio credentials not configured')
     }
     if (!this.from) {
-      throw new Error('TWILIO_FROM_NUMBER must be set')
+      throw new Error('TWILIO_FROM_NUMBER or TWILIO_PHONE_NUMBER must be set')
     }
     this.client = twilio(accountSid, authToken)
   }
@@ -45,16 +45,16 @@ export class TwilioProvider implements CallProvider {
   async muteCall(callId: string): Promise<void> {
     try {
       await this.client.calls(callId).update({ muted: true } as any)
-    } catch (err) {
-      // mute not supported on all call states — silently ignore
+    } catch {
+      // mute not supported on all Twilio call states
     }
   }
 
   async unmuteCall(callId: string): Promise<void> {
     try {
       await this.client.calls(callId).update({ muted: false } as any)
-    } catch (err) {
-      // unmute not supported on all call states — silently ignore
+    } catch {
+      // unmute not supported on all Twilio call states
     }
   }
 
