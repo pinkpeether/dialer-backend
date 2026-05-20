@@ -15,7 +15,6 @@ import {
 
 const router = Router()
 
-// Sab routes protected hain
 router.use(authenticate)
 
 // Stats — Admin + Supervisor
@@ -24,8 +23,8 @@ router.get('/stats',
   AgentController.getAgentStats
 )
 
-// Update own status — current logged-in agent/admin/supervisor
-// IMPORTANT: keep this before /:id routes.
+// PATCH /agents/me/status — any authenticated user updates their own status
+// IMPORTANT: keep /me routes before /:id routes.
 router.patch('/me/status',
   authorize('ADMIN', 'SUPERVISOR', 'AGENT'),
   validate(updateStatusSchema),
@@ -34,6 +33,28 @@ router.patch('/me/status',
       const userId = req.user!.id
       const agent = await AgentService.updateAgentStatus(userId, req.body.status)
       return sendSuccess(res, agent, 'Agent status updated')
+    } catch (err) {
+      return next(err)
+    }
+  }
+)
+
+// PATCH /agents/me — any authenticated user updates their own profile (name, phone, extension)
+router.patch('/me',
+  authorize('ADMIN', 'SUPERVISOR', 'AGENT'),
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.id
+      const { name, phone, extension } = req.body
+
+      // Whitelist: agents can only update name/phone/extension — not role/isActive
+      const allowedData: { name?: string; phone?: string; extension?: string } = {}
+      if (typeof name      === 'string' && name.trim())      allowedData.name      = name.trim()
+      if (typeof phone     === 'string')                     allowedData.phone     = phone.trim() || undefined
+      if (typeof extension === 'string')                     allowedData.extension = extension.trim() || undefined
+
+      const agent = await AgentService.updateAgent(userId, allowedData)
+      return sendSuccess(res, agent, 'Profile updated')
     } catch (err) {
       return next(err)
     }
@@ -72,7 +93,7 @@ router.delete('/:id',
   AgentController.deleteAgent
 )
 
-// Update status — Admin + Supervisor + Agent himself
+// Update status for specific agent — Admin + Supervisor
 router.patch('/:id/status',
   validate(updateStatusSchema),
   AgentController.updateAgentStatus
