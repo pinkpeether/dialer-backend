@@ -68,6 +68,13 @@ enum AgentSessionStatus {
   DISCONNECTED
 }
 
+enum CallbackStatus {
+  PENDING
+  COMPLETED
+  RESCHEDULED
+  CANCELLED
+}
+
 // ── Models ───────────────────────────────────────────────────────────────────
 
 model User {
@@ -86,6 +93,8 @@ model User {
   // Relations
   calls        Call[]
   sessions     AgentSession[]
+  callbacks    Callback[]
+  dncEntries   DNCList[]
 }
 
 model Campaign {
@@ -109,23 +118,24 @@ model Campaign {
 }
 
 model Contact {
-  id          Int           @id @default(autoincrement())
-  name        String?
-  phone       String
-  email       String?
-  company     String?
-  status      ContactStatus @default(PENDING)
-  callbackAt  DateTime?
-  notes       String?
-  retryCount  Int           @default(0)
-  maxRetries  Int           @default(3)
+  id           Int           @id @default(autoincrement())
+  name         String?
+  phone        String
+  email        String?
+  company      String?
+  status       ContactStatus @default(PENDING)
+  callbackAt   DateTime?
+  notes        String?
+  retryCount   Int           @default(0)
+  maxRetries   Int           @default(3)
   lastCalledAt DateTime?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
   // Relations
-  campaignId  Int?
-  campaign    Campaign?     @relation(fields: [campaignId], references: [id])
-  calls       Call[]
+  campaignId   Int?
+  campaign     Campaign?     @relation(fields: [campaignId], references: [id])
+  calls        Call[]
+  callbacks    Callback[]
 }
 
 model Call {
@@ -149,6 +159,23 @@ model Call {
   contact        Contact          @relation(fields: [contactId], references: [id])
   campaign       Campaign         @relation(fields: [campaignId], references: [id])
   agent          User?            @relation(fields: [agentId], references: [id])
+  callbacks      Callback[]
+}
+
+model Callback {
+  id          Int            @id @default(autoincrement())
+  contactId   Int?
+  callId      Int?
+  agentId     Int
+  scheduledAt DateTime
+  notes       String?
+  status      CallbackStatus @default(PENDING)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  // Relations
+  contact     Contact?  @relation(fields: [contactId], references: [id])
+  call        Call?     @relation(fields: [callId],    references: [id])
+  agent       User      @relation(fields: [agentId],   references: [id])
 }
 
 model AgentSession {
@@ -163,8 +190,11 @@ model AgentSession {
 }
 
 model DNCList {
-  id        Int      @id @default(autoincrement())
-  phone     String   @unique
-  reason    String?
-  createdAt DateTime @default(now())
+  id             Int      @id @default(autoincrement())
+  phone          String   @unique
+  reason         String?
+  addedByUserId  Int?
+  createdAt      DateTime @default(now())
+  // Relations
+  addedBy        User?    @relation(fields: [addedByUserId], references: [id])
 }
