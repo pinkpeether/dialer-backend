@@ -50,6 +50,9 @@ async function runSchedulerTick(): Promise<void> {
           contactId: queued.id,
           campaignId: campaign.id,
           status: 'INITIATED',
+          direction: 'outgoing',
+          remoteNumber: queued.phone,
+          source: 'provider',
         },
       })
       // Update contact status to CALLING

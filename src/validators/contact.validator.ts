@@ -16,6 +16,20 @@ export const updateContactSchema = Joi.object({
   company: Joi.string().max(100).optional().allow(''),
   notes:   Joi.string().max(1000).optional().allow(''),
   status:  Joi.string()
-    .valid('PENDING','CALLING','ANSWERED','NO_ANSWER','BUSY','DONE','DNC')
+    .valid(
+      'PENDING',
+      'IN_QUEUE',
+      'CALLING',
+      'CONTACTED',
+      'ANSWERED',
+      'NO_ANSWER',
+      'BUSY',
+      'DONE',
+      'FAILED',
+      'VOICEMAIL',
+      'CALLBACK',
+      'WRONG_NUMBER',
+      'DNC'
+    )
     .optional(),
 })

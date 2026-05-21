@@ -35,12 +35,15 @@ enum ContactStatus {
   PENDING
   IN_QUEUE
   CALLING
+  CONTACTED
   ANSWERED
   NO_ANSWER
   BUSY
   DONE
   FAILED
+  VOICEMAIL
   CALLBACK
+  WRONG_NUMBER
   DNC
 }
 
@@ -145,6 +148,9 @@ model Call {
   agentId        Int?
   providerCallId String?
   twilioCallSid  String?
+  direction       String?
+  remoteNumber   String?
+  source         String?
   status         CallStatus       @default(INITIATED)
   disposition    CallDisposition?
   duration       Int?

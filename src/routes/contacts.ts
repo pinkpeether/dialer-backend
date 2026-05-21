@@ -37,6 +37,12 @@ router.get('/',
 )
 
 // Single
+router.get('/:id/calls',
+  authorize('ADMIN', 'SUPERVISOR', 'AGENT'),
+  ContactController.getContactCalls
+)
+
+// Single
 router.get('/:id',
   authorize('ADMIN', 'SUPERVISOR'),
   ContactController.getContactById

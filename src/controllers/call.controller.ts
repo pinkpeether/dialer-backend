@@ -88,6 +88,7 @@ export const listCalls = async (
       campaignId: getQueryNumber(req.query.campaignId),
       agentId: getQueryNumber(req.query.agentId),
       status: getQueryStatus(req.query.status),
+      direction: getQueryString(req.query.direction),
       page: getQueryNumber(req.query.page),
       limit: getQueryNumber(req.query.limit),
       startDate: getQueryDate(req.query.startDate),
@@ -155,6 +156,7 @@ export const updateDisposition = async (
       callId,
       getDisposition(req.body.disposition),
       typeof req.body.notes === 'string' ? req.body.notes : undefined,
+      getQueryDate(req.body.callbackAt),
       req.user
     )
 

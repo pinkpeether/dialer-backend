@@ -11,6 +11,7 @@ export type ListCallsFilters = {
   campaignId?: number
   agentId?: number
   status?: CallStatus
+  direction?: string
   page?: number
   limit?: number
   startDate?: Date
@@ -30,6 +31,11 @@ const clampPagination = (page = 1, limit = 20) => ({
 })
 
 const normalizePhone = (value: string) => value.replace(/[\s\-().]/g, '').trim()
+
+const normalizeDirection = (value?: string) => {
+  const direction = value?.trim().toLowerCase()
+  return direction === 'incoming' || direction === 'inbound' ? 'incoming' : 'outgoing'
+}
 
 const ensureCanAccessCall = (
   call: { agentId: number | null },
@@ -95,6 +101,9 @@ export const createSipCallLog = async (input: SipCallLogInput, user?: CallAccess
       campaignId: campaign.id,
       agentId,
       status: 'ANSWERED',
+      direction: normalizeDirection(input.direction),
+      remoteNumber: contact.phone,
+      source: 'sip',
       startedAt,
       connectedAt: startedAt,
       providerCallId: `sip:${startedAt.getTime()}`,
@@ -108,7 +117,7 @@ export const createSipCallLog = async (input: SipCallLogInput, user?: CallAccess
 
   return {
     ...call,
-    direction: input.direction || 'outgoing',
+    direction: normalizeDirection(input.direction),
     remoteNumber: contact.phone,
     source: 'sip',
   }
@@ -118,7 +127,7 @@ export const listCalls = async (
   filters: ListCallsFilters,
   user?: CallAccessUser
 ) => {
-  const { campaignId, agentId, status, startDate, endDate } = filters
+  const { campaignId, agentId, status, direction, startDate, endDate } = filters
   const { page, limit } = clampPagination(filters.page, filters.limit)
 
   const where: Prisma.CallWhereInput = {}
@@ -126,6 +135,7 @@ export const listCalls = async (
   if (campaignId !== undefined) where.campaignId = campaignId
   if (agentId !== undefined) where.agentId = agentId
   if (status) where.status = status
+  if (direction) where.direction = normalizeDirection(direction)
   if (startDate || endDate) {
     where.createdAt = {
       ...(startDate ? { gte: startDate } : {}),
@@ -180,6 +190,7 @@ export const updateCallDisposition = async (
   id: number,
   disposition: CallDisposition,
   notes?: string,
+  callbackAt?: Date,
   user?: CallAccessUser
 ) => {
   const existing = await prisma.call.findUnique({
@@ -207,10 +218,45 @@ export const updateCallDisposition = async (
   await prisma.contact.update({
     where: { id: existing.contactId },
     data: {
-      status: disposition === 'DO_NOT_CALL' ? 'DNC' : 'DONE',
+      status: disposition === 'DO_NOT_CALL'
+        ? 'DNC'
+        : disposition === 'CALLBACK'
+          ? 'CALLBACK'
+          : disposition === 'VOICEMAIL'
+            ? 'VOICEMAIL'
+            : disposition === 'WRONG_NUMBER'
+              ? 'WRONG_NUMBER'
+              : disposition === 'NO_ANSWER'
+                ? 'NO_ANSWER'
+                : 'CONTACTED',
+      ...(callbackAt ? { callbackAt } : {}),
       ...(notes !== undefined ? { notes } : {}),
     },
   })
 
   return call
+}
+
+export const getCallsForContact = async (
+  contactId: number,
+  user?: CallAccessUser
+) => {
+  const contact = await prisma.contact.findUnique({
+    where: { id: contactId },
+    select: { id: true },
+  })
+  if (!contact) throw new AppError('Contact not found', 404)
+
+  const where: Prisma.CallWhereInput = { contactId }
+  if (user?.role === 'AGENT') where.agentId = user.id
+
+  return prisma.call.findMany({
+    where,
+    include: {
+      agent: { select: { id: true, name: true, agentCode: true } },
+      campaign: { select: { id: true, name: true } },
+    },
+    orderBy: { startedAt: 'desc' },
+    take: 50,
+  })
 }

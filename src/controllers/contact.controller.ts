@@ -1,5 +1,6 @@
 import { Response, NextFunction, Request } from 'express'
 import * as ContactService from '../services/contact.service'
+import * as CallService from '../services/call.service'
 import { sendSuccess, sendError } from '../utils/response'
 import { AuthRequest } from '../middleware/auth'
 
@@ -25,6 +26,18 @@ export const getContactById = async (
   try {
     const contact = await ContactService.getContactById(Number(req.params.id))
     return sendSuccess(res, contact, 'Contact fetched')
+  } catch (err) { return next(err) }
+}
+
+export const getContactCalls = async (
+  req: AuthRequest, res: Response, next: NextFunction
+) => {
+  try {
+    const contactId = Number(req.params.id)
+    if (!Number.isFinite(contactId)) return sendError(res, 'Invalid contact ID', 400)
+
+    const calls = await CallService.getCallsForContact(contactId, req.user)
+    return sendSuccess(res, calls, 'Contact calls fetched')
   } catch (err) { return next(err) }
 }
 

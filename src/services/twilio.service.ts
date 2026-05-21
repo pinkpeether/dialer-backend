@@ -29,7 +29,15 @@ export const initiateCall = async (
   if (!campaign) throw new AppError('Campaign not found', 404)
 
   const callRecord = await prisma.call.create({
-    data: { contactId, campaignId, agentId: agentId || null, status: 'INITIATED' }
+    data: {
+      contactId,
+      campaignId,
+      agentId: agentId || null,
+      status: 'INITIATED',
+      direction: 'outgoing',
+      remoteNumber: contact.phone,
+      source: 'twilio',
+    }
   })
 
   await prisma.contact.update({
@@ -110,6 +118,9 @@ export const initiateAdhocCall = async (
       campaignId: campaign.id,
       agentId,
       status: 'INITIATED',
+      direction: 'outgoing',
+      remoteNumber: phone,
+      source: 'twilio',
     }
   })
 
@@ -245,9 +256,9 @@ export const handleStatusWebhook = async (
   const statusMap: Record<string, string> = {
     initiated:      'INITIATED',
     ringing:        'RINGING',
-    'in-progress':  'CONNECTED',
+    'in-progress':  'ANSWERED',
     completed:      'COMPLETED',
-    busy:           'BUSY',
+    busy:           'FAILED',
     'no-answer':    'NO_ANSWER',
     failed:         'FAILED',
     canceled:       'FAILED',
@@ -261,8 +272,8 @@ export const handleStatusWebhook = async (
     data: {
       status:      status as never,
       duration,
-      endedAt:     ['COMPLETED','BUSY','NO_ANSWER','FAILED'].includes(status) ? new Date() : undefined,
-      connectedAt: status === 'CONNECTED' ? new Date() : undefined,
+      endedAt:     ['COMPLETED','NO_ANSWER','FAILED'].includes(status) ? new Date() : undefined,
+      connectedAt: status === 'ANSWERED' ? new Date() : undefined,
     }
   })
 
@@ -275,10 +286,9 @@ export const handleStatusWebhook = async (
 
   const contactStatusMap: Record<string, string> = {
     COMPLETED: 'DONE',
-    BUSY:      'BUSY',
     NO_ANSWER: 'NO_ANSWER',
     FAILED:    'NO_ANSWER',
-    CONNECTED: 'ANSWERED',
+    ANSWERED:  'ANSWERED',
   }
 
   const newContactStatus = contactStatusMap[status]
@@ -321,7 +331,7 @@ export const handleAMDWebhook = async (
     if (call?.twilioCallSid) await hangupCall(call.twilioCallSid)
     await prisma.call.update({
       where: { id: callId },
-      data:  { status: 'VOICEMAIL' as never }
+      data:  { status: 'COMPLETED', disposition: 'VOICEMAIL', endedAt: new Date() }
     })
   }
 }
