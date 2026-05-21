@@ -2,16 +2,16 @@ export declare const initiateCall: (contactId: number, campaignId: number, agent
     callRecord: {
         twilioCallSid: string;
         id: number;
-        status: string;
+        status: import(".prisma/client").$Enums.CallStatus;
         createdAt: Date;
         updatedAt: Date;
         startedAt: Date;
         contactId: number;
         campaignId: number;
         agentId: number | null;
+        providerCallId: string | null;
+        disposition: import(".prisma/client").$Enums.CallDisposition | null;
         duration: number | null;
-        disposition: string | null;
-        sentiment: string | null;
         recordingUrl: string | null;
         recordingSid: string | null;
         connectedAt: Date | null;

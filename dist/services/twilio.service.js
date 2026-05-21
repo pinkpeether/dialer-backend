@@ -8,7 +8,10 @@ const twilio_1 = __importDefault(require("twilio"));
 const prisma_1 = __importDefault(require("../lib/prisma"));
 const errorHandler_1 = require("../middleware/errorHandler");
 const logger_1 = __importDefault(require("../utils/logger"));
-const BASE_URL = process.env.BASE_URL || 'http://localhost:3001';
+const BASE_URL = process.env.WEBHOOK_BASE_URL || process.env.BASE_URL || 'http://localhost:3001';
+const getTwilioFromNumber = () => process.env.TWILIO_FROM_NUMBER || process.env.TWILIO_PHONE_NUMBER || '';
+// Legacy Twilio API adapter. Universal SIP mode lives in the frontend SIP engine;
+// this file remains only for backwards-compatible API/TwiML workflows.
 // Lazy getter — prevents startup crash if TWILIO_* env vars are missing
 const getClient = () => {
     const sid = process.env.TWILIO_ACCOUNT_SID;
@@ -36,7 +39,7 @@ const initiateCall = async (contactId, campaignId, agentId) => {
         const client = getClient();
         const call = await client.calls.create({
             to: contact.phone,
-            from: process.env.TWILIO_PHONE_NUMBER,
+            from: getTwilioFromNumber(),
             url: `${BASE_URL}/api/dialer/twiml/connect/${callRecord.id}`,
             statusCallback: `${BASE_URL}/api/dialer/webhook/status/${callRecord.id}`,
             statusCallbackMethod: 'POST',
@@ -83,6 +86,10 @@ const initiateAdhocCall = async (phone, agentId, note) => {
                 name: '__adhoc__',
                 description: 'System campaign for ad-hoc manual calls',
                 status: 'ACTIVE',
+                callerId: process.env.TWILIO_FROM_NUMBER ||
+                    process.env.TWILIO_PHONE_NUMBER ||
+                    'LEGACY_TWILIO',
+                dialingRatio: 1,
             }
         });
     }
@@ -98,7 +105,7 @@ const initiateAdhocCall = async (phone, agentId, note) => {
         const client = getClient();
         const call = await client.calls.create({
             to: phone,
-            from: process.env.TWILIO_PHONE_NUMBER,
+            from: getTwilioFromNumber(),
             url: `${BASE_URL}/api/dialer/twiml/connect/${callRecord.id}`,
             statusCallback: `${BASE_URL}/api/dialer/webhook/status/${callRecord.id}`,
             statusCallbackMethod: 'POST',

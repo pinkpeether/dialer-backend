@@ -66,7 +66,7 @@ const getContactById = async (id) => {
                 take: 20,
                 select: {
                     id: true, status: true, duration: true,
-                    disposition: true, sentiment: true,
+                    disposition: true,
                     recordingUrl: true, startedAt: true, endedAt: true,
                     agent: { select: { name: true, agentCode: true } }
                 }

@@ -15,7 +15,7 @@ async function main() {
             agentCode: 'AGT-001',
             name: 'Super Admin',
             email: 'admin@ptdt.taxi',
-            password: hash,
+            passwordHash: hash,
             role: 'ADMIN',
             status: 'OFFLINE',
             isActive: true,

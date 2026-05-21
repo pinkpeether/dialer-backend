@@ -9,8 +9,8 @@ export declare const getAllContacts: (filters: {
         id: number;
         email: string | null;
         name: string | null;
+        status: import(".prisma/client").$Enums.ContactStatus;
         phone: string;
-        status: string;
         createdAt: Date;
         _count: {
             calls: number;
@@ -34,11 +34,10 @@ export declare const getContactById: (id: number) => Promise<{
     } | null;
     calls: {
         id: number;
-        status: string;
+        status: import(".prisma/client").$Enums.CallStatus;
         startedAt: Date;
+        disposition: import(".prisma/client").$Enums.CallDisposition | null;
         duration: number | null;
-        disposition: string | null;
-        sentiment: string | null;
         recordingUrl: string | null;
         endedAt: Date | null;
         agent: {
@@ -50,13 +49,16 @@ export declare const getContactById: (id: number) => Promise<{
     id: number;
     email: string | null;
     name: string | null;
+    status: import(".prisma/client").$Enums.ContactStatus;
     phone: string;
-    status: string;
     createdAt: Date;
     updatedAt: Date;
     campaignId: number | null;
     company: string | null;
+    callbackAt: Date | null;
+    notes: string | null;
     retryCount: number;
+    maxRetries: number;
     lastCalledAt: Date | null;
 }>;
 export declare const createContact: (data: {
@@ -70,13 +72,16 @@ export declare const createContact: (data: {
     id: number;
     email: string | null;
     name: string | null;
+    status: import(".prisma/client").$Enums.ContactStatus;
     phone: string;
-    status: string;
     createdAt: Date;
     updatedAt: Date;
     campaignId: number | null;
     company: string | null;
+    callbackAt: Date | null;
+    notes: string | null;
     retryCount: number;
+    maxRetries: number;
     lastCalledAt: Date | null;
 }>;
 export declare const updateContact: (id: number, data: Partial<{
@@ -90,13 +95,16 @@ export declare const updateContact: (id: number, data: Partial<{
     id: number;
     email: string | null;
     name: string | null;
+    status: import(".prisma/client").$Enums.ContactStatus;
     phone: string;
-    status: string;
     createdAt: Date;
     updatedAt: Date;
     campaignId: number | null;
     company: string | null;
+    callbackAt: Date | null;
+    notes: string | null;
     retryCount: number;
+    maxRetries: number;
     lastCalledAt: Date | null;
 }>;
 export declare const deleteContact: (id: number) => Promise<void>;
@@ -112,6 +120,7 @@ export declare const addToDNC: (phone: string, reason?: string) => Promise<{
     phone: string;
     createdAt: Date;
     reason: string | null;
+    addedByUserId: number | null;
 }>;
 export declare const getContactStats: (campaignId?: number) => Promise<{
     total: number;

@@ -16,10 +16,10 @@ export declare const registerUser: (data: {
         email: string;
         agentCode: string | null;
         name: string;
+        role: import(".prisma/client").$Enums.UserRole;
+        status: import(".prisma/client").$Enums.UserStatus;
         extension: string | null;
         phone: string | null;
-        role: string;
-        status: string;
         createdAt: Date;
     };
     token: string;
@@ -30,7 +30,7 @@ export declare const loginUser: (email: string, password: string) => Promise<{
         agentCode: string | null;
         name: string;
         email: string;
-        role: string;
+        role: import(".prisma/client").$Enums.UserRole;
         extension: string | null;
         phone: string | null;
         status: string;
@@ -42,11 +42,11 @@ export declare const getProfile: (userId: number) => Promise<{
     email: string;
     agentCode: string | null;
     name: string;
+    role: import(".prisma/client").$Enums.UserRole;
+    status: import(".prisma/client").$Enums.UserStatus;
     extension: string | null;
     phone: string | null;
     isActive: boolean;
-    role: string;
-    status: string;
     createdAt: Date;
 }>;
 export declare const logoutUser: (userId: number) => Promise<void>;

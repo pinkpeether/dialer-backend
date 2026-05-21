@@ -82,13 +82,14 @@ const createCampaign = async (data) => {
         data: {
             name: data.name,
             description: data.description,
-            dialRatio: data.dialRatio || 3,
-            maxRetries: data.maxRetries || 3,
-            retryDelay: data.retryDelay || 30,
+            callerId: data.callerId ?? '',
+            dialingRatio: data.dialingRatio ?? 3,
+            maxRetries: data.maxRetries ?? 3,
+            retryDelay: data.retryDelay ?? 30,
             script: data.script,
             startTime: data.startTime,
             endTime: data.endTime,
-            timezone: data.timezone || 'Asia/Karachi',
+            timezone: data.timezone ?? 'Asia/Karachi',
             status: 'DRAFT',
         }
     });
@@ -139,7 +140,8 @@ const cloneCampaign = async (id) => {
         data: {
             name: `${original.name} (Copy)`,
             description: original.description ?? undefined,
-            dialRatio: original.dialRatio,
+            callerId: original.callerId ?? '',
+            dialingRatio: original.dialingRatio ?? 3,
             maxRetries: original.maxRetries,
             retryDelay: original.retryDelay,
             script: original.script ?? undefined,

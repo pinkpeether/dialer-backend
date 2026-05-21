@@ -17,8 +17,8 @@ process.on('unhandledRejection', (reason) => {
 });
 try {
     app_1.httpServer.listen(PORT, () => {
-        console.log(`🚀 JD Dialer Backend running on port ${PORT}`);
-        logger_1.default.info(`🚀 JD Dialer Backend running on http://localhost:${PORT}`);
+        console.log(`🚀 PTDT Dialer Backend running on port ${PORT}`);
+        logger_1.default.info(`🚀 PTDT Dialer Backend running on http://localhost:${PORT}`);
     });
 }
 catch (err) {

@@ -35,14 +35,47 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const AgentController = __importStar(require("../controllers/agent.controller"));
+const AgentService = __importStar(require("../services/agent.service"));
 const auth_1 = require("../middleware/auth");
 const validate_1 = require("../middleware/validate");
+const response_1 = require("../utils/response");
 const agent_validator_1 = require("../validators/agent.validator");
 const router = (0, express_1.Router)();
-// Sab routes protected hain
 router.use(auth_1.authenticate);
 // Stats — Admin + Supervisor
 router.get('/stats', (0, auth_1.authorize)('ADMIN', 'SUPERVISOR'), AgentController.getAgentStats);
+// PATCH /agents/me/status — any authenticated user updates their own status
+// IMPORTANT: keep /me routes before /:id routes.
+router.patch('/me/status', (0, auth_1.authorize)('ADMIN', 'SUPERVISOR', 'AGENT'), (0, validate_1.validate)(agent_validator_1.updateStatusSchema), async (req, res, next) => {
+    try {
+        const userId = req.user.id;
+        const agent = await AgentService.updateAgentStatus(userId, req.body.status);
+        return (0, response_1.sendSuccess)(res, agent, 'Agent status updated');
+    }
+    catch (err) {
+        return next(err);
+    }
+});
+// PATCH /agents/me — any authenticated user updates their own profile (name, phone, extension)
+router.patch('/me', (0, auth_1.authorize)('ADMIN', 'SUPERVISOR', 'AGENT'), async (req, res, next) => {
+    try {
+        const userId = req.user.id;
+        const { name, phone, extension } = req.body;
+        // Whitelist: agents can only update name/phone/extension — not role/isActive
+        const allowedData = {};
+        if (typeof name === 'string' && name.trim())
+            allowedData.name = name.trim();
+        if (typeof phone === 'string')
+            allowedData.phone = phone.trim() || undefined;
+        if (typeof extension === 'string')
+            allowedData.extension = extension.trim() || undefined;
+        const agent = await AgentService.updateAgent(userId, allowedData);
+        return (0, response_1.sendSuccess)(res, agent, 'Profile updated');
+    }
+    catch (err) {
+        return next(err);
+    }
+});
 // List all agents — Admin + Supervisor
 router.get('/', (0, auth_1.authorize)('ADMIN', 'SUPERVISOR'), AgentController.getAllAgents);
 // Single agent — Admin + Supervisor
@@ -53,7 +86,7 @@ router.post('/', (0, auth_1.authorize)('ADMIN'), (0, validate_1.validate)(agent_
 router.put('/:id', (0, auth_1.authorize)('ADMIN'), (0, validate_1.validate)(agent_validator_1.updateAgentSchema), AgentController.updateAgent);
 // Delete agent (soft) — Admin only
 router.delete('/:id', (0, auth_1.authorize)('ADMIN'), AgentController.deleteAgent);
-// Update status — Admin + Supervisor + Agent himself
+// Update status for specific agent — Admin + Supervisor
 router.patch('/:id/status', (0, validate_1.validate)(agent_validator_1.updateStatusSchema), AgentController.updateAgentStatus);
 // Reset password — Admin only
 router.patch('/:id/reset-password', (0, auth_1.authorize)('ADMIN'), (0, validate_1.validate)(agent_validator_1.resetPasswordSchema), AgentController.resetAgentPassword);

@@ -11,11 +11,11 @@ export declare const getAllAgents: (filters: {
         email: string;
         agentCode: string | null;
         name: string;
+        role: import(".prisma/client").$Enums.UserRole;
+        status: import(".prisma/client").$Enums.UserStatus;
         extension: string | null;
         phone: string | null;
         isActive: boolean;
-        role: string;
-        status: string;
         createdAt: Date;
         _count: {
             calls: number;
@@ -33,11 +33,11 @@ export declare const getAgentById: (id: number) => Promise<{
     email: string;
     agentCode: string | null;
     name: string;
+    role: import(".prisma/client").$Enums.UserRole;
+    status: import(".prisma/client").$Enums.UserStatus;
     extension: string | null;
     phone: string | null;
     isActive: boolean;
-    role: string;
-    status: string;
     createdAt: Date;
     updatedAt: Date;
     calls: {
@@ -46,10 +46,10 @@ export declare const getAgentById: (id: number) => Promise<{
             phone: string;
         };
         id: number;
-        status: string;
+        status: import(".prisma/client").$Enums.CallStatus;
         startedAt: Date;
+        disposition: import(".prisma/client").$Enums.CallDisposition | null;
         duration: number | null;
-        disposition: string | null;
     }[];
     _count: {
         calls: number;
@@ -67,11 +67,11 @@ export declare const createAgent: (data: {
     email: string;
     agentCode: string | null;
     name: string;
+    role: import(".prisma/client").$Enums.UserRole;
+    status: import(".prisma/client").$Enums.UserStatus;
     extension: string | null;
     phone: string | null;
     isActive: boolean;
-    role: string;
-    status: string;
     createdAt: Date;
 }>;
 export declare const updateAgent: (id: number, data: {
@@ -86,11 +86,11 @@ export declare const updateAgent: (id: number, data: {
     email: string;
     agentCode: string | null;
     name: string;
+    role: import(".prisma/client").$Enums.UserRole;
+    status: import(".prisma/client").$Enums.UserStatus;
     extension: string | null;
     phone: string | null;
     isActive: boolean;
-    role: string;
-    status: string;
     updatedAt: Date;
 }>;
 export declare const deleteAgent: (id: number) => Promise<void>;
@@ -98,7 +98,7 @@ export declare const updateAgentStatus: (id: number, status: "ONLINE" | "READY" 
     id: number;
     agentCode: string | null;
     name: string;
-    status: string;
+    status: import(".prisma/client").$Enums.UserStatus;
 }>;
 export declare const resetAgentPassword: (id: number, newPassword: string) => Promise<void>;
 export declare const getAgentStats: () => Promise<{

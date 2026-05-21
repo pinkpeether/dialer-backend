@@ -42,6 +42,7 @@ const auth_1 = require("../middleware/auth");
 const validate_1 = require("../middleware/validate");
 const campaign_validator_1 = require("../validators/campaign.validator");
 const joi_1 = __importDefault(require("joi"));
+const queueManager_1 = require("../services/queueManager");
 const router = (0, express_1.Router)();
 router.use(auth_1.authenticate);
 // Stats
@@ -56,12 +57,29 @@ router.post('/', (0, auth_1.authorize)('ADMIN', 'SUPERVISOR'), (0, validate_1.va
 router.put('/:id', (0, auth_1.authorize)('ADMIN', 'SUPERVISOR'), (0, validate_1.validate)(campaign_validator_1.updateCampaignSchema), CampaignController.updateCampaign);
 // Delete
 router.delete('/:id', (0, auth_1.authorize)('ADMIN'), CampaignController.deleteCampaign);
-// Status change (pause/resume/complete)
+// Status change (start/pause/complete)
 router.patch('/:id/status', (0, auth_1.authorize)('ADMIN', 'SUPERVISOR'), (0, validate_1.validate)(joi_1.default.object({
     status: joi_1.default.string()
         .valid('DRAFT', 'ACTIVE', 'PAUSED', 'COMPLETED')
-        .required()
-})), CampaignController.updateCampaignStatus);
+        .required(),
+})), async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body;
+        // When campaign is started (ACTIVE) → init queue
+        if (status === 'ACTIVE') {
+            await queueManager_1.queueManager.initQueue(parseInt(id, 10));
+        }
+        // When campaign is paused or completed → clear queue + reset contacts
+        if (status === 'PAUSED' || status === 'COMPLETED') {
+            await queueManager_1.queueManager.clear(parseInt(id, 10));
+        }
+        return CampaignController.updateCampaignStatus(req, res, next);
+    }
+    catch (err) {
+        next(err);
+    }
+});
 // Clone campaign
 router.post('/:id/clone', (0, auth_1.authorize)('ADMIN', 'SUPERVISOR'), CampaignController.cloneCampaign);
 exports.default = router;
