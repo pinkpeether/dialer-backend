@@ -27,4 +27,10 @@ router.patch(
   CallController.updateDisposition
 )
 
+router.post(
+  '/',
+  authorize('ADMIN', 'SUPERVISOR', 'AGENT'),
+  CallController.createCall
+)
+
 export default router
