@@ -17,10 +17,19 @@ export type ListCallsFilters = {
   endDate?: Date
 }
 
+export type SipCallLogInput = {
+  remoteNumber: string
+  direction?: string
+  startedAt?: Date
+  agentId?: number
+}
+
 const clampPagination = (page = 1, limit = 20) => ({
   page: Number.isFinite(page) && page > 0 ? page : 1,
   limit: Number.isFinite(limit) && limit > 0 ? Math.min(limit, 200) : 20,
 })
+
+const normalizePhone = (value: string) => value.replace(/[\s\-().]/g, '').trim()
 
 const ensureCanAccessCall = (
   call: { agentId: number | null },
@@ -30,7 +39,6 @@ const ensureCanAccessCall = (
   if (!user) throw new AppError('Unauthorized', 401)
 
   if (user.role === 'ADMIN' || user.role === 'SUPERVISOR') return
-
   if (user.role === 'AGENT' && call.agentId === user.id) return
 
   throw new AppError(
@@ -41,17 +49,76 @@ const ensureCanAccessCall = (
   )
 }
 
+const getOrCreateSystemCampaign = async () => {
+  const existing = await prisma.campaign.findFirst({ where: { name: '__sip__' } })
+  if (existing) return existing
+
+  return prisma.campaign.create({
+    data: {
+      name: '__sip__',
+      description: 'System campaign for SIP softphone calls',
+      status: 'ACTIVE',
+      callerId: 'SIP',
+      dialingRatio: 1,
+    },
+  })
+}
+
+const getOrCreateSipContact = async (remoteNumber: string, campaignId: number) => {
+  const phone = normalizePhone(remoteNumber) || remoteNumber.trim()
+  const existing = await prisma.contact.findFirst({ where: { phone, campaignId } })
+  if (existing) return existing
+
+  return prisma.contact.create({
+    data: {
+      phone,
+      name: `SIP ${phone}`,
+      status: 'CALLING',
+      campaignId,
+      lastCalledAt: new Date(),
+    },
+  })
+}
+
+export const createSipCallLog = async (input: SipCallLogInput, user?: CallAccessUser) => {
+  const remoteNumber = input.remoteNumber.trim()
+  if (!remoteNumber) throw new AppError('remoteNumber is required', 400)
+
+  const campaign = await getOrCreateSystemCampaign()
+  const contact = await getOrCreateSipContact(remoteNumber, campaign.id)
+  const startedAt = input.startedAt || new Date()
+  const agentId = input.agentId ?? user?.id ?? null
+
+  const call = await prisma.call.create({
+    data: {
+      contactId: contact.id,
+      campaignId: campaign.id,
+      agentId,
+      status: 'ANSWERED',
+      startedAt,
+      connectedAt: startedAt,
+      providerCallId: `sip:${startedAt.getTime()}`,
+    },
+    include: {
+      contact: true,
+      agent: { select: { id: true, name: true, agentCode: true } },
+      campaign: { select: { id: true, name: true } },
+    },
+  })
+
+  return {
+    ...call,
+    direction: input.direction || 'outgoing',
+    remoteNumber: contact.phone,
+    source: 'sip',
+  }
+}
+
 export const listCalls = async (
   filters: ListCallsFilters,
   user?: CallAccessUser
 ) => {
-  const {
-    campaignId,
-    agentId,
-    status,
-    startDate,
-    endDate,
-  } = filters
+  const { campaignId, agentId, status, startDate, endDate } = filters
   const { page, limit } = clampPagination(filters.page, filters.limit)
 
   const where: Prisma.CallWhereInput = {}
@@ -66,9 +133,7 @@ export const listCalls = async (
     }
   }
 
-  if (user?.role === 'AGENT') {
-    where.agentId = user.id
-  }
+  if (user?.role === 'AGENT') where.agentId = user.id
 
   const [calls, total] = await Promise.all([
     prisma.call.findMany({
@@ -108,7 +173,6 @@ export const getCallById = async (id: number, user?: CallAccessUser) => {
 
   if (!call) throw new AppError('Call not found', 404)
   ensureCanAccessCall(call, user, 'view')
-
   return call
 }
 
