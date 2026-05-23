@@ -201,74 +201,78 @@ export const updateCallDisposition = async (
   if (!existing) throw new AppError('Call not found', 404)
   ensureCanAccessCall(existing, user, 'update')
 
-  const call = await prisma.call.update({
-    where: { id },
-    data: {
-      disposition,
-      status: 'COMPLETED',
-      endedAt: new Date(),
-    },
-    include: {
-      contact: true,
-      agent: { select: { id: true, name: true, agentCode: true } },
-      campaign: { select: { id: true, name: true } },
-    },
-  })
+  const callbackAgentId = existing.agentId ?? user?.id
 
-  await prisma.contact.update({
-    where: { id: existing.contactId },
-    data: {
-      status: disposition === 'DO_NOT_CALL'
-        ? 'DNC'
-        : disposition === 'CALLBACK'
-          ? 'CALLBACK'
-          : disposition === 'VOICEMAIL'
-            ? 'VOICEMAIL'
-            : disposition === 'WRONG_NUMBER'
-              ? 'WRONG_NUMBER'
-              : disposition === 'NO_ANSWER'
-                ? 'NO_ANSWER'
-                : 'CONTACTED',
-      ...(callbackAt ? { callbackAt } : {}),
-      ...(notes !== undefined ? { notes } : {}),
-    },
-  })
-
-  if (disposition === 'CALLBACK' && callbackAt && existing.agentId) {
-    const pendingCallback = await prisma.callback.findFirst({
-      where: {
-        callId: id,
-        status: { in: ['PENDING', 'RESCHEDULED'] },
+  return prisma.$transaction(async (tx) => {
+    const call = await tx.call.update({
+      where: { id },
+      data: {
+        disposition,
+        status: 'COMPLETED',
+        endedAt: new Date(),
       },
-      orderBy: { createdAt: 'desc' },
+      include: {
+        contact: true,
+        agent: { select: { id: true, name: true, agentCode: true } },
+        campaign: { select: { id: true, name: true } },
+      },
     })
 
-    if (pendingCallback) {
-      await prisma.callback.update({
-        where: { id: pendingCallback.id },
-        data: {
-          contactId: existing.contactId,
-          agentId: existing.agentId,
-          scheduledAt: callbackAt,
-          notes: notes ?? pendingCallback.notes,
-          status: 'PENDING',
-        },
-      })
-    } else {
-      await prisma.callback.create({
-        data: {
-          contactId: existing.contactId,
-          callId: id,
-          agentId: existing.agentId,
-          scheduledAt: callbackAt,
-          notes: notes ?? null,
-          status: 'PENDING',
-        },
-      })
-    }
-  }
+    await tx.contact.update({
+      where: { id: existing.contactId },
+      data: {
+        status: disposition === 'DO_NOT_CALL'
+          ? 'DNC'
+          : disposition === 'CALLBACK'
+            ? 'CALLBACK'
+            : disposition === 'VOICEMAIL'
+              ? 'VOICEMAIL'
+              : disposition === 'WRONG_NUMBER'
+                ? 'WRONG_NUMBER'
+                : disposition === 'NO_ANSWER'
+                  ? 'NO_ANSWER'
+                  : 'CONTACTED',
+        ...(callbackAt ? { callbackAt } : {}),
+        ...(notes !== undefined ? { notes } : {}),
+      },
+    })
 
-  return call
+    if (disposition === 'CALLBACK' && callbackAt && callbackAgentId) {
+      const pendingCallback = await tx.callback.findFirst({
+        where: {
+          callId: id,
+          status: { in: ['PENDING', 'RESCHEDULED'] },
+        },
+        orderBy: { createdAt: 'desc' },
+      })
+
+      if (pendingCallback) {
+        await tx.callback.update({
+          where: { id: pendingCallback.id },
+          data: {
+            contactId: existing.contactId,
+            agentId: callbackAgentId,
+            scheduledAt: callbackAt,
+            notes: notes ?? pendingCallback.notes,
+            status: 'PENDING',
+          },
+        })
+      } else {
+        await tx.callback.create({
+          data: {
+            contactId: existing.contactId,
+            callId: id,
+            agentId: callbackAgentId,
+            scheduledAt: callbackAt,
+            notes: notes ?? null,
+            status: 'PENDING',
+          },
+        })
+      }
+    }
+
+    return call
+  })
 }
 
 export const getCallsForContact = async (
