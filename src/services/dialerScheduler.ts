@@ -12,6 +12,7 @@ import { getCallProvider } from '../providers/callProviderFactory'
  */
 
 const SCHEDULER_INTERVAL_MS = 3000
+let schedulerRunning = false
 
 async function runSchedulerTick(): Promise<void> {
   // Find all campaigns currently in ACTIVE status
@@ -82,6 +83,14 @@ async function runSchedulerTick(): Promise<void> {
 // Start the scheduler loop.  In the future this could be moved into
 // an external worker process or replaced with a more sophisticated
 // job scheduler (Bull, Agenda, etc.).
-setInterval(runSchedulerTick, SCHEDULER_INTERVAL_MS)
+setInterval(() => {
+  if (schedulerRunning) return
+  schedulerRunning = true
+  void runSchedulerTick()
+    .catch(() => undefined)
+    .finally(() => {
+      schedulerRunning = false
+    })
+}, SCHEDULER_INTERVAL_MS)
 
 export default {}

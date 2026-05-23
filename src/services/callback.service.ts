@@ -1,6 +1,7 @@
 import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
-import type { CallbackStatus } from '@prisma/client'
+
+export type CallbackStatus = 'PENDING' | 'COMPLETED' | 'RESCHEDULED' | 'CANCELLED'
 
 export const createCallback = async (data: {
   contactId?: number | null
@@ -49,20 +50,18 @@ export const getAllCallbacks = async (filters: {
     }
   }
 
-  const [callbacks, total] = await Promise.all([
-    prisma.callback.findMany({
-      where,
-      include: {
-        contact: { select: { id: true, name: true, phone: true } },
-        call:    { select: { id: true, status: true, disposition: true } },
-        agent:   { select: { id: true, name: true, agentCode: true } },
-      },
-      orderBy: { scheduledAt: 'asc' },
-      skip:  (page - 1) * limit,
-      take:  limit,
-    }),
-    prisma.callback.count({ where }),
-  ])
+  const callbacks = await prisma.callback.findMany({
+    where,
+    include: {
+      contact: { select: { id: true, name: true, phone: true } },
+      call:    { select: { id: true, status: true, disposition: true } },
+      agent:   { select: { id: true, name: true, agentCode: true } },
+    },
+    orderBy: { scheduledAt: 'asc' },
+    skip:  (page - 1) * limit,
+    take:  limit,
+  })
+  const total = await prisma.callback.count({ where })
 
   return {
     callbacks,

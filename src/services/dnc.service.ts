@@ -13,24 +13,22 @@ export const getAllDnc = async (filters: {
     where.phone = { contains: search, mode: 'insensitive' }
   }
 
-  const [entries, total] = await Promise.all([
-    prisma.dNCList.findMany({
-      where,
-      select: {
-        id:        true,
-        phone:     true,
-        reason:    true,
-        createdAt: true,
-        addedBy: {
-          select: { id: true, name: true, agentCode: true },
-        },
+  const entries = await prisma.dNCList.findMany({
+    where,
+    select: {
+      id:        true,
+      phone:     true,
+      reason:    true,
+      createdAt: true,
+      addedBy: {
+        select: { id: true, name: true, agentCode: true },
       },
-      orderBy: { createdAt: 'desc' },
-      skip:  (page - 1) * limit,
-      take:  limit,
-    }),
-    prisma.dNCList.count({ where }),
-  ])
+    },
+    orderBy: { createdAt: 'desc' },
+    skip:  (page - 1) * limit,
+    take:  limit,
+  })
+  const total = await prisma.dNCList.count({ where })
 
   return {
     entries,

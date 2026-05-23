@@ -145,20 +145,18 @@ export const listCalls = async (
 
   if (user?.role === 'AGENT') where.agentId = user.id
 
-  const [calls, total] = await Promise.all([
-    prisma.call.findMany({
-      where,
-      include: {
-        contact: true,
-        agent: { select: { id: true, name: true, agentCode: true } },
-        campaign: { select: { id: true, name: true } },
-      },
-      skip: (page - 1) * limit,
-      take: limit,
-      orderBy: { createdAt: 'desc' },
-    }),
-    prisma.call.count({ where }),
-  ])
+  const calls = await prisma.call.findMany({
+    where,
+    include: {
+      contact: true,
+      agent: { select: { id: true, name: true, agentCode: true } },
+      campaign: { select: { id: true, name: true } },
+    },
+    skip: (page - 1) * limit,
+    take: limit,
+    orderBy: { createdAt: 'desc' },
+  })
+  const total = await prisma.call.count({ where })
 
   return {
     calls,
@@ -195,13 +193,24 @@ export const updateCallDisposition = async (
 ) => {
   const existing = await prisma.call.findUnique({
     where: { id },
-    select: { id: true, contactId: true, agentId: true },
+    select: {
+      id: true,
+      contactId: true,
+      agentId: true,
+      startedAt: true,
+      connectedAt: true,
+      endedAt: true,
+      duration: true,
+    },
   })
 
   if (!existing) throw new AppError('Call not found', 404)
   ensureCanAccessCall(existing, user, 'update')
 
   const callbackAgentId = existing.agentId ?? user?.id
+  const endedAt = existing.endedAt ?? new Date()
+  const durationStart = existing.connectedAt ?? existing.startedAt
+  const duration = existing.duration ?? Math.max(0, Math.round((endedAt.getTime() - durationStart.getTime()) / 1000))
 
   return prisma.$transaction(async (tx) => {
     const call = await tx.call.update({
@@ -209,7 +218,9 @@ export const updateCallDisposition = async (
       data: {
         disposition,
         status: 'COMPLETED',
-        endedAt: new Date(),
+        endedAt,
+        duration,
+        ...(notes !== undefined ? { notes } : {}),
       },
       include: {
         contact: true,
@@ -233,7 +244,6 @@ export const updateCallDisposition = async (
                   ? 'NO_ANSWER'
                   : 'CONTACTED',
         callbackAt: disposition === 'CALLBACK' ? callbackAt : null,
-        ...(notes !== undefined ? { notes } : {}),
       },
     })
 
@@ -280,6 +290,45 @@ export const updateCallDisposition = async (
     }
 
     return call
+  })
+}
+
+export const markCallEnded = async (
+  id: number,
+  endedAtInput?: Date,
+  user?: CallAccessUser
+) => {
+  const existing = await prisma.call.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      agentId: true,
+      startedAt: true,
+      connectedAt: true,
+      endedAt: true,
+      duration: true,
+    },
+  })
+
+  if (!existing) throw new AppError('Call not found', 404)
+  ensureCanAccessCall(existing, user, 'update')
+
+  const endedAt = existing.endedAt ?? endedAtInput ?? new Date()
+  const durationStart = existing.connectedAt ?? existing.startedAt
+  const duration = existing.duration ?? Math.max(0, Math.round((endedAt.getTime() - durationStart.getTime()) / 1000))
+
+  return prisma.call.update({
+    where: { id },
+    data: {
+      status: 'COMPLETED',
+      endedAt,
+      duration,
+    },
+    include: {
+      contact: true,
+      agent: { select: { id: true, name: true, agentCode: true } },
+      campaign: { select: { id: true, name: true } },
+    },
   })
 }
 

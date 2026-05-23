@@ -3,7 +3,7 @@ import * as CallbackService from '../services/callback.service'
 import { AppError } from '../middleware/errorHandler'
 import type { AuthRequest } from '../middleware/auth'
 import { sendSuccess } from '../utils/response'
-import type { CallbackStatus } from '@prisma/client'
+import type { CallbackStatus } from '../services/callback.service'
 
 const VALID_STATUSES: CallbackStatus[] = ['PENDING', 'COMPLETED', 'RESCHEDULED', 'CANCELLED']
 

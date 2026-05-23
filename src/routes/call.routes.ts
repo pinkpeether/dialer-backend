@@ -27,6 +27,12 @@ router.patch(
   CallController.updateDisposition
 )
 
+router.patch(
+  '/:id/end',
+  authorize('ADMIN', 'SUPERVISOR', 'AGENT'),
+  CallController.endCall
+)
+
 router.post(
   '/',
   authorize('ADMIN', 'SUPERVISOR', 'AGENT'),

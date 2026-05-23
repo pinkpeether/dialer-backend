@@ -271,17 +271,14 @@ export const addToDNC = async (phone: string, reason?: string) => {
 export const getContactStats = async (campaignId?: number) => {
   const where = campaignId ? { campaignId } : {}
 
-  const [total, pending, calling, answered, noAnswer, busy, done, dnc] =
-    await Promise.all([
-      prisma.contact.count({ where }),
-      prisma.contact.count({ where: { ...where, status: 'PENDING'   } }),
-      prisma.contact.count({ where: { ...where, status: 'CALLING'   } }),
-      prisma.contact.count({ where: { ...where, status: 'ANSWERED'  } }),
-      prisma.contact.count({ where: { ...where, status: 'NO_ANSWER' } }),
-      prisma.contact.count({ where: { ...where, status: 'BUSY'      } }),
-      prisma.contact.count({ where: { ...where, status: 'DONE'      } }),
-      prisma.contact.count({ where: { ...where, status: 'DNC'       } }),
-    ])
+  const total = await prisma.contact.count({ where })
+  const pending = await prisma.contact.count({ where: { ...where, status: 'PENDING' } })
+  const calling = await prisma.contact.count({ where: { ...where, status: 'CALLING' } })
+  const answered = await prisma.contact.count({ where: { ...where, status: 'ANSWERED' } })
+  const noAnswer = await prisma.contact.count({ where: { ...where, status: 'NO_ANSWER' } })
+  const busy = await prisma.contact.count({ where: { ...where, status: 'BUSY' } })
+  const done = await prisma.contact.count({ where: { ...where, status: 'DONE' } })
+  const dnc = await prisma.contact.count({ where: { ...where, status: 'DNC' } })
 
   const dialed      = total - pending
   const answerRate  = dialed > 0

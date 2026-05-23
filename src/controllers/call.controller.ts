@@ -165,3 +165,21 @@ export const updateDisposition = async (
     return next(err)
   }
 }
+
+export const endCall = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const callId = Number(req.params.id)
+    if (!Number.isFinite(callId)) throw new AppError('Invalid call id', 400)
+
+    const endedAt = getQueryDate(req.body.endedAt)
+    const call = await CallService.markCallEnded(callId, endedAt, req.user)
+
+    return sendSuccess(res, call, 'Call ended')
+  } catch (err) {
+    return next(err)
+  }
+}
