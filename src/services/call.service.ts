@@ -232,12 +232,20 @@ export const updateCallDisposition = async (
                 : disposition === 'NO_ANSWER'
                   ? 'NO_ANSWER'
                   : 'CONTACTED',
-        ...(callbackAt ? { callbackAt } : {}),
+        callbackAt: disposition === 'CALLBACK' ? callbackAt : null,
         ...(notes !== undefined ? { notes } : {}),
       },
     })
 
-    if (disposition === 'CALLBACK' && callbackAt && callbackAgentId) {
+    if (disposition !== 'CALLBACK') {
+      await tx.callback.updateMany({
+        where: {
+          callId: id,
+          status: { in: ['PENDING', 'RESCHEDULED'] },
+        },
+        data: { status: 'CANCELLED' },
+      })
+    } else if (callbackAt && callbackAgentId) {
       const pendingCallback = await tx.callback.findFirst({
         where: {
           callId: id,
