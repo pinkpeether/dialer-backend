@@ -234,6 +234,40 @@ export const updateCallDisposition = async (
     },
   })
 
+  if (disposition === 'CALLBACK' && callbackAt && existing.agentId) {
+    const pendingCallback = await prisma.callback.findFirst({
+      where: {
+        callId: id,
+        status: { in: ['PENDING', 'RESCHEDULED'] },
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    if (pendingCallback) {
+      await prisma.callback.update({
+        where: { id: pendingCallback.id },
+        data: {
+          contactId: existing.contactId,
+          agentId: existing.agentId,
+          scheduledAt: callbackAt,
+          notes: notes ?? pendingCallback.notes,
+          status: 'PENDING',
+        },
+      })
+    } else {
+      await prisma.callback.create({
+        data: {
+          contactId: existing.contactId,
+          callId: id,
+          agentId: existing.agentId,
+          scheduledAt: callbackAt,
+          notes: notes ?? null,
+          status: 'PENDING',
+        },
+      })
+    }
+  }
+
   return call
 }
 
