@@ -15,6 +15,11 @@ import callRoutes     from './routes/call.routes'
 import dncRoutes      from './routes/dnc'
 import callbackRoutes from './routes/callbacks'
 import reportsRoutes  from './routes/reports'
+import auditRoutes    from './routes/audit.routes'
+import settingsRoutes from './routes/settings.routes'
+import notificationRoutes from './routes/notifications.routes'
+import recordingRoutes from './routes/recordings.routes'
+import exportRoutes   from './routes/exports.routes'
 
 import './services/dialerScheduler'
 
@@ -73,6 +78,11 @@ app.use('/api/dialer',    dialerRoutes)
 app.use('/api/dnc',       dncRoutes)
 app.use('/api/callbacks', callbackRoutes)
 app.use('/api/reports',   reportsRoutes)
+app.use('/api/audit-logs', auditRoutes)
+app.use('/api/settings', settingsRoutes)
+app.use('/api/notifications', notificationRoutes)
+app.use('/api/recordings', recordingRoutes)
+app.use('/api/exports', exportRoutes)
 
 app.use((_req, _res, next) => {
   next(new AppError('Route not found', 404))

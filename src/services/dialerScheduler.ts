@@ -1,6 +1,7 @@
 import prisma from '../lib/prisma'
 import { queueManager } from './queueManager'
 import { getCallProvider } from '../providers/callProviderFactory'
+import { isCampaignDialableNow } from './campaignSchedule.service'
 
 /**
  * Dialer scheduler that regularly checks for running campaigns
@@ -29,6 +30,28 @@ async function runSchedulerTick(): Promise<void> {
   }
 
   for (const campaign of campaigns) {
+    const dialability = isCampaignDialableNow(campaign)
+    if (!dialability.allowed) {
+      await prisma.campaign.update({
+        where: { id: campaign.id },
+        data: {
+          waitingReason: dialability.reason || 'NOT_DIALABLE',
+          lastSchedulerCheckAt: new Date(),
+        },
+      })
+      continue
+    }
+
+    if (campaign.waitingReason) {
+      await prisma.campaign.update({
+        where: { id: campaign.id },
+        data: {
+          waitingReason: null,
+          lastSchedulerCheckAt: new Date(),
+        },
+      })
+    }
+
     // Ensure the queue for this campaign is initialised
     if (!queueManager.hasQueue(campaign.id)) {
       await queueManager.initQueue(campaign.id)

@@ -1,6 +1,7 @@
 import type { CallDisposition, CallStatus, Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
+import { applyDispositionRetry } from './retry.service'
 
 type CallAccessUser = {
   id: number
@@ -201,6 +202,7 @@ export const updateCallDisposition = async (
       connectedAt: true,
       endedAt: true,
       duration: true,
+      campaign: { select: { maxRetries: true, retryDelay: true } },
     },
   })
 
@@ -288,6 +290,13 @@ export const updateCallDisposition = async (
         })
       }
     }
+
+    await applyDispositionRetry(tx, {
+      contactId: existing.contactId,
+      disposition,
+      campaignMaxRetries: existing.campaign.maxRetries,
+      campaignRetryDelaySeconds: existing.campaign.retryDelay,
+    })
 
     return call
   })
