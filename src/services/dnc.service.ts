@@ -1,5 +1,9 @@
 import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
+import { logAuditEvent } from './audit.service'
+import { AUDIT_ACTIONS } from '../constants/auditActions'
+
+type AuditActor = { id: number; email?: string; role?: string }
 
 export const getAllDnc = async (filters: {
   page?: number
@@ -51,14 +55,16 @@ export const checkDnc = async (phone: string): Promise<boolean> => {
 export const addToDnc = async (
   phone: string,
   reason: string | undefined,
-  addedByUserId: number
+  addedByUserId: number,
+  actor?: AuditActor,
+  ipAddress?: string | null
 ) => {
   const normalized = normalizePhone(phone)
 
   const existing = await prisma.dNCList.findUnique({ where: { phone: normalized } })
   if (existing) throw new AppError('Phone number is already on the DNC list', 409)
 
-  return await prisma.dNCList.create({
+  const dnc = await prisma.dNCList.create({
     data: {
       phone:         normalized,
       reason:        reason ?? null,
@@ -72,12 +78,36 @@ export const addToDnc = async (
       addedBy: { select: { id: true, name: true } },
     },
   })
+
+  await logAuditEvent({
+    actor,
+    action: AUDIT_ACTIONS.DNC_ADD,
+    entity: 'DNCList',
+    entityId: dnc.id,
+    metadata: { phone: dnc.phone },
+    ipAddress,
+  })
+
+  return dnc
 }
 
-export const removeFromDnc = async (id: number) => {
+export const removeFromDnc = async (
+  id: number,
+  actor?: AuditActor,
+  ipAddress?: string | null
+) => {
   const existing = await prisma.dNCList.findUnique({ where: { id } })
   if (!existing) throw new AppError('DNC entry not found', 404)
   await prisma.dNCList.delete({ where: { id } })
+
+  await logAuditEvent({
+    actor,
+    action: AUDIT_ACTIONS.DNC_REMOVE,
+    entity: 'DNCList',
+    entityId: id,
+    metadata: { phone: existing.phone },
+    ipAddress,
+  })
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

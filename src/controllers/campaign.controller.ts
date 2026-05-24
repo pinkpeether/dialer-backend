@@ -61,7 +61,7 @@ export const updateCampaignStatus = async (
 ) => {
   try {
     const campaign = await CampaignService.updateCampaignStatus(
-      Number(req.params.id), req.body.status
+      Number(req.params.id), req.body.status, req.user, req.ip
     )
     return sendSuccess(res, campaign, `Campaign ${req.body.status.toLowerCase()} successfully`)
   } catch (err) { return next(err) }

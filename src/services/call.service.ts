@@ -2,6 +2,8 @@ import type { CallDisposition, CallStatus, Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import { applyDispositionRetry } from './retry.service'
+import { logAuditEvent } from './audit.service'
+import { AUDIT_ACTIONS } from '../constants/auditActions'
 
 type CallAccessUser = {
   id: number
@@ -214,7 +216,7 @@ export const updateCallDisposition = async (
   const durationStart = existing.connectedAt ?? existing.startedAt
   const duration = existing.duration ?? Math.max(0, Math.round((endedAt.getTime() - durationStart.getTime()) / 1000))
 
-  return prisma.$transaction(async (tx) => {
+  const call = await prisma.$transaction(async (tx) => {
     const call = await tx.call.update({
       where: { id },
       data: {
@@ -300,6 +302,16 @@ export const updateCallDisposition = async (
 
     return call
   })
+
+  await logAuditEvent({
+    actor: user,
+    action: AUDIT_ACTIONS.CALL_DISPOSITION_UPDATE,
+    entity: 'Call',
+    entityId: id,
+    metadata: { disposition, callbackAt },
+  })
+
+  return call
 }
 
 export const markCallEnded = async (

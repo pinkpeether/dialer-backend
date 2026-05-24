@@ -38,7 +38,9 @@ export const addToDnc = async (
     const entry = await DncService.addToDnc(
       phone,
       typeof reason === 'string' ? reason : undefined,
-      req.user!.id
+      req.user!.id,
+      req.user,
+      req.ip
     )
     return sendSuccess(res, entry, 'Phone added to DNC list', 201)
   } catch (err) { return next(err) }
@@ -50,7 +52,7 @@ export const removeFromDnc = async (
   try {
     const id = Number(req.params.id)
     if (!Number.isFinite(id)) throw new AppError('Invalid DNC entry id', 400)
-    await DncService.removeFromDnc(id)
+    await DncService.removeFromDnc(id, req.user, req.ip)
     return sendSuccess(res, null, 'Phone removed from DNC list')
   } catch (err) { return next(err) }
 }

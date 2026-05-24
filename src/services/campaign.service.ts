@@ -1,5 +1,9 @@
 import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
+import { logAuditEvent } from './audit.service'
+import { AUDIT_ACTIONS } from '../constants/auditActions'
+
+type AuditActor = { id: number; email?: string; role?: string }
 
 export const getAllCampaigns = async (filters: {
   status?: string
@@ -147,7 +151,9 @@ export const deleteCampaign = async (id: number) => {
 
 export const updateCampaignStatus = async (
   id: number,
-  status: 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'COMPLETED'
+  status: 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'COMPLETED',
+  actor?: AuditActor,
+  ipAddress?: string | null
 ) => {
   const existing = await prisma.campaign.findUnique({ where: { id } })
   if (!existing) throw new AppError('Campaign not found', 404)
@@ -166,10 +172,21 @@ export const updateCampaignStatus = async (
     )
   }
 
-  return await prisma.campaign.update({
+  const campaign = await prisma.campaign.update({
     where: { id },
     data:  { status },
   })
+
+  await logAuditEvent({
+    actor,
+    action: AUDIT_ACTIONS.CAMPAIGN_STATUS_UPDATE,
+    entity: 'Campaign',
+    entityId: campaign.id,
+    metadata: { status: campaign.status },
+    ipAddress,
+  })
+
+  return campaign
 }
 
 export const cloneCampaign = async (id: number) => {
