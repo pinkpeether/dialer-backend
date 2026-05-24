@@ -5,6 +5,7 @@ type Actor = { id: number; email?: string; role?: string } | undefined
 const SECRET_KEYS = ['password', 'passwordHash', 'token', 'jwt', 'secret', 'sipPassword', 'authorization']
 
 function sanitize(value: unknown): unknown {
+  if (value instanceof Date) return value.toISOString()
   if (!value || typeof value !== 'object') return value
   if (Array.isArray(value)) return value.map(sanitize)
   const input = value as Record<string, unknown>

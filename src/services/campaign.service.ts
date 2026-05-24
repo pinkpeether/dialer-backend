@@ -5,6 +5,42 @@ import { AUDIT_ACTIONS } from '../constants/auditActions'
 
 type AuditActor = { id: number; email?: string; role?: string }
 
+type CampaignContactStats = {
+  pending: number
+  answered: number
+  missed: number
+  active: number
+  total: number
+  answerRate: number
+}
+
+const emptyCampaignStats = (): CampaignContactStats => ({
+  pending: 0,
+  answered: 0,
+  missed: 0,
+  active: 0,
+  total: 0,
+  answerRate: 0,
+})
+
+const toCampaignStats = (counts: Record<string, number>): CampaignContactStats => {
+  const pending = counts.PENDING ?? 0
+  const answered = (counts.ANSWERED ?? 0) + (counts.DONE ?? 0)
+  const missed = (counts.NO_ANSWER ?? 0) + (counts.BUSY ?? 0)
+  const active = counts.CALLING ?? 0
+  const total = Object.values(counts).reduce((sum, count) => sum + count, 0)
+  const dialed = total - pending
+
+  return {
+    pending,
+    answered,
+    missed,
+    active,
+    total,
+    answerRate: dialed > 0 ? Math.round((answered / dialed) * 100) : 0,
+  }
+}
+
 export const getAllCampaigns = async (filters: {
   status?: string
   search?: string
@@ -40,18 +76,26 @@ export const getAllCampaigns = async (filters: {
     prisma.campaign.count({ where }),
   ])
 
-  // Add extra stats per campaign
-  const enriched = await Promise.all(
-    campaigns.map(async (c) => {
-      const [pending, answered, missed, active] = await Promise.all([
-        prisma.contact.count({ where: { campaignId: c.id, status: 'PENDING' } }),
-        prisma.contact.count({ where: { campaignId: c.id, status: { in: ['ANSWERED', 'DONE'] } } }),
-        prisma.contact.count({ where: { campaignId: c.id, status: { in: ['NO_ANSWER', 'BUSY'] } } }),
-        prisma.contact.count({ where: { campaignId: c.id, status: 'CALLING' } }),
-      ])
-      return { ...c, stats: { pending, answered, missed, active } }
-    })
-  )
+  const campaignIds = campaigns.map(c => c.id)
+  const grouped = campaignIds.length > 0
+    ? await prisma.contact.groupBy({
+        by: ['campaignId', 'status'],
+        where: { campaignId: { in: campaignIds } },
+        _count: { _all: true },
+      })
+    : []
+
+  const statsByCampaign = grouped.reduce<Record<number, Record<string, number>>>((acc, row) => {
+    if (row.campaignId === null) return acc
+    acc[row.campaignId] ??= {}
+    acc[row.campaignId][row.status] = row._count._all
+    return acc
+  }, {})
+
+  const enriched = campaigns.map(c => ({
+    ...c,
+    stats: toCampaignStats(statsByCampaign[c.id] ?? {}),
+  }))
 
   return {
     campaigns: enriched,
@@ -71,27 +115,29 @@ export const getCampaignById = async (id: number) => {
   })
   if (!campaign) throw new AppError('Campaign not found', 404)
 
-  const [pending, answered, missed, active, calling] = await Promise.all([
-    prisma.contact.count({ where: { campaignId: id, status: 'PENDING'  } }),
-    prisma.contact.count({ where: { campaignId: id, status: { in: ['ANSWERED', 'DONE'] } } }),
-    prisma.contact.count({ where: { campaignId: id, status: { in: ['NO_ANSWER', 'BUSY'] } } }),
-    prisma.contact.count({ where: { campaignId: id, status: 'CALLING'  } }),
-    prisma.contact.count({ where: { campaignId: id, status: 'CALLING'  } }),
-  ])
+  const grouped = await prisma.contact.groupBy({
+    by: ['status'],
+    where: { campaignId: id },
+    _count: { _all: true },
+  })
 
-  const total      = pending + answered + missed + calling
-  const answerRate = total > 0 ? Math.round((answered / total) * 100) : 0
+  const counts = grouped.reduce<Record<string, number>>((acc, row) => {
+    acc[row.status] = row._count._all
+    return acc
+  }, {})
 
   return {
     ...campaign,
-    stats: { pending, answered, missed, active, total, answerRate }
+    stats: grouped.length > 0 ? toCampaignStats(counts) : emptyCampaignStats()
   }
 }
 
 export const createCampaign = async (data: {
   name: string
   description?: string
+  mode?: string
   callerId?: string
+  dialRatio?: number
   dialingRatio?: number
   maxRetries?: number
   retryDelay?: number
@@ -104,8 +150,9 @@ export const createCampaign = async (data: {
     data: {
       name:         data.name,
       description:  data.description,
+      mode:         data.mode ?? 'PROGRESSIVE',
       callerId:     data.callerId ?? '',
-      dialingRatio: data.dialingRatio ?? 3,
+      dialingRatio: data.dialingRatio ?? data.dialRatio ?? 3,
       maxRetries:   data.maxRetries ?? 3,
       retryDelay:   data.retryDelay ?? 30,
       script:       data.script,
@@ -122,7 +169,9 @@ export const updateCampaign = async (
   data: Partial<{
     name: string
     description: string
+    mode: string
     callerId: string
+    dialRatio: number
     dialingRatio: number
     maxRetries: number
     retryDelay: number
@@ -135,7 +184,15 @@ export const updateCampaign = async (
   const existing = await prisma.campaign.findUnique({ where: { id } })
   if (!existing) throw new AppError('Campaign not found', 404)
 
-  return await prisma.campaign.update({ where: { id }, data })
+  const { dialRatio, ...updateData } = data
+
+  return await prisma.campaign.update({
+    where: { id },
+    data: {
+      ...updateData,
+      ...(data.dialingRatio === undefined && dialRatio !== undefined ? { dialingRatio: dialRatio } : {}),
+    },
+  })
 }
 
 export const deleteCampaign = async (id: number) => {
@@ -197,6 +254,7 @@ export const cloneCampaign = async (id: number) => {
     data: {
       name:         `${original.name} (Copy)`,
       description:  original.description ?? undefined,
+      mode:         original.mode ?? 'PROGRESSIVE',
       callerId:     original.callerId ?? '',
       dialingRatio: original.dialingRatio ?? 3,
       maxRetries:   original.maxRetries,

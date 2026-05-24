@@ -271,14 +271,25 @@ export const addToDNC = async (phone: string, reason?: string) => {
 export const getContactStats = async (campaignId?: number) => {
   const where = campaignId ? { campaignId } : {}
 
-  const total = await prisma.contact.count({ where })
-  const pending = await prisma.contact.count({ where: { ...where, status: 'PENDING' } })
-  const calling = await prisma.contact.count({ where: { ...where, status: 'CALLING' } })
-  const answered = await prisma.contact.count({ where: { ...where, status: 'ANSWERED' } })
-  const noAnswer = await prisma.contact.count({ where: { ...where, status: 'NO_ANSWER' } })
-  const busy = await prisma.contact.count({ where: { ...where, status: 'BUSY' } })
-  const done = await prisma.contact.count({ where: { ...where, status: 'DONE' } })
-  const dnc = await prisma.contact.count({ where: { ...where, status: 'DNC' } })
+  const grouped = await prisma.contact.groupBy({
+    by: ['status'],
+    where,
+    _count: { _all: true },
+  })
+
+  const countByStatus = grouped.reduce<Record<string, number>>((acc, item) => {
+    acc[item.status] = item._count._all
+    return acc
+  }, {})
+
+  const pending = countByStatus.PENDING ?? 0
+  const calling = countByStatus.CALLING ?? 0
+  const answered = countByStatus.ANSWERED ?? 0
+  const noAnswer = countByStatus.NO_ANSWER ?? 0
+  const busy = countByStatus.BUSY ?? 0
+  const done = countByStatus.DONE ?? 0
+  const dnc = countByStatus.DNC ?? 0
+  const total = grouped.reduce((sum, item) => sum + item._count._all, 0)
 
   const dialed      = total - pending
   const answerRate  = dialed > 0
