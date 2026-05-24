@@ -14,6 +14,8 @@ type CampaignContactStats = {
   answerRate: number
 }
 
+const ALLOWED_MODES = ['MANUAL', 'PREVIEW', 'PROGRESSIVE', 'PREDICTIVE'] as const
+
 const emptyCampaignStats = (): CampaignContactStats => ({
   pending: 0,
   answered: 0,
@@ -25,11 +27,11 @@ const emptyCampaignStats = (): CampaignContactStats => ({
 
 const toCampaignStats = (counts: Record<string, number>): CampaignContactStats => {
   const pending = counts.PENDING ?? 0
-  const answered = (counts.ANSWERED ?? 0) + (counts.DONE ?? 0)
-  const missed = (counts.NO_ANSWER ?? 0) + (counts.BUSY ?? 0)
-  const active = counts.CALLING ?? 0
+  const answered = (counts.ANSWERED ?? 0) + (counts.CONTACTED ?? 0) + (counts.DONE ?? 0)
+  const missed = (counts.NO_ANSWER ?? 0) + (counts.BUSY ?? 0) + (counts.VOICEMAIL ?? 0)
+  const active = (counts.CALLING ?? 0) + (counts.IN_QUEUE ?? 0)
   const total = Object.values(counts).reduce((sum, count) => sum + count, 0)
-  const dialed = total - pending
+  const dialed = Math.max(0, total - pending)
 
   return {
     pending,
@@ -41,6 +43,19 @@ const toCampaignStats = (counts: Record<string, number>): CampaignContactStats =
   }
 }
 
+const normalizeMode = (mode?: string | null) => {
+  const normalized = String(mode || 'PROGRESSIVE').toUpperCase()
+  return ALLOWED_MODES.includes(normalized as typeof ALLOWED_MODES[number])
+    ? normalized
+    : 'PROGRESSIVE'
+}
+
+const normalizeNumber = (value: unknown, fallback: number, min: number, max: number) => {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return fallback
+  return Math.max(min, Math.min(max, Math.floor(numeric)))
+}
+
 export const getAllCampaigns = async (filters: {
   status?: string
   search?: string
@@ -48,6 +63,8 @@ export const getAllCampaigns = async (filters: {
   limit?: number
 }) => {
   const { status, search, page = 1, limit = 20 } = filters
+  const safePage = Math.max(1, Number(page) || 1)
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 20, 100))
 
   const where: Record<string, unknown> = {}
   if (status) where.status = status
@@ -58,23 +75,24 @@ export const getAllCampaigns = async (filters: {
     ]
   }
 
-  const [campaigns, total] = await Promise.all([
-    prisma.campaign.findMany({
-      where,
-      include: {
-        _count: {
-          select: {
-            contacts: true,
-            calls: true,
-          }
+  // Keep these sequential. Supabase/Railway setups often use a tiny Prisma pool,
+  // and parallel campaign list/stat requests were causing connection-pool timeouts.
+  const campaigns = await prisma.campaign.findMany({
+    where,
+    include: {
+      _count: {
+        select: {
+          contacts: true,
+          calls: true,
         }
-      },
-      orderBy: { createdAt: 'desc' },
-      skip:  (page - 1) * limit,
-      take:  limit,
-    }),
-    prisma.campaign.count({ where }),
-  ])
+      }
+    },
+    orderBy: { createdAt: 'desc' },
+    skip:  (safePage - 1) * safeLimit,
+    take:  safeLimit,
+  })
+
+  const total = await prisma.campaign.count({ where })
 
   const campaignIds = campaigns.map(c => c.id)
   const grouped = campaignIds.length > 0
@@ -94,19 +112,25 @@ export const getAllCampaigns = async (filters: {
 
   const enriched = campaigns.map(c => ({
     ...c,
+    totalContacts: c._count.contacts,
+    totalCalls: c._count.calls,
     stats: toCampaignStats(statsByCampaign[c.id] ?? {}),
   }))
 
   return {
     campaigns: enriched,
     pagination: {
-      total, page, limit,
-      totalPages: Math.ceil(total / limit),
+      total,
+      page: safePage,
+      limit: safeLimit,
+      totalPages: Math.ceil(total / safeLimit),
     }
   }
 }
 
 export const getCampaignById = async (id: number) => {
+  if (!Number.isFinite(id)) throw new AppError('Invalid campaign id', 400)
+
   const campaign = await prisma.campaign.findUnique({
     where: { id },
     include: {
@@ -128,6 +152,8 @@ export const getCampaignById = async (id: number) => {
 
   return {
     ...campaign,
+    totalContacts: campaign._count.contacts,
+    totalCalls: campaign._count.calls,
     stats: grouped.length > 0 ? toCampaignStats(counts) : emptyCampaignStats()
   }
 }
@@ -146,19 +172,23 @@ export const createCampaign = async (data: {
   endTime?: string
   timezone?: string
 }) => {
-  return await prisma.campaign.create({
+  if (!data.name || !String(data.name).trim()) {
+    throw new AppError('Campaign name is required', 400)
+  }
+
+  return prisma.campaign.create({
     data: {
-      name:         data.name,
-      description:  data.description,
-      mode:         data.mode ?? 'PROGRESSIVE',
-      callerId:     data.callerId ?? '',
-      dialingRatio: data.dialingRatio ?? data.dialRatio ?? 3,
-      maxRetries:   data.maxRetries ?? 3,
-      retryDelay:   data.retryDelay ?? 30,
-      script:       data.script,
-      startTime:    data.startTime,
-      endTime:      data.endTime,
-      timezone:     data.timezone ?? 'Asia/Karachi',
+      name:         String(data.name).trim(),
+      description:  data.description?.trim() || null,
+      mode:         normalizeMode(data.mode),
+      callerId:     data.callerId?.trim() || '',
+      dialingRatio: normalizeNumber(data.dialingRatio ?? data.dialRatio, 1, 1, 10),
+      maxRetries:   normalizeNumber(data.maxRetries, 3, 0, 20),
+      retryDelay:   normalizeNumber(data.retryDelay, 300, 30, 86400),
+      script:       data.script?.trim() || null,
+      startTime:    data.startTime || null,
+      endTime:      data.endTime || null,
+      timezone:     data.timezone || 'Asia/Karachi',
       status:       'DRAFT',
     }
   })
@@ -184,14 +214,28 @@ export const updateCampaign = async (
   const existing = await prisma.campaign.findUnique({ where: { id } })
   if (!existing) throw new AppError('Campaign not found', 404)
 
-  const { dialRatio, ...updateData } = data
+  const updateData: Record<string, unknown> = {}
 
-  return await prisma.campaign.update({
+  if (data.name !== undefined) {
+    if (!String(data.name).trim()) throw new AppError('Campaign name is required', 400)
+    updateData.name = String(data.name).trim()
+  }
+  if (data.description !== undefined) updateData.description = data.description?.trim() || null
+  if (data.mode !== undefined) updateData.mode = normalizeMode(data.mode)
+  if (data.callerId !== undefined) updateData.callerId = data.callerId?.trim() || ''
+  if (data.dialingRatio !== undefined || data.dialRatio !== undefined) {
+    updateData.dialingRatio = normalizeNumber(data.dialingRatio ?? data.dialRatio, existing.dialingRatio, 1, 10)
+  }
+  if (data.maxRetries !== undefined) updateData.maxRetries = normalizeNumber(data.maxRetries, existing.maxRetries, 0, 20)
+  if (data.retryDelay !== undefined) updateData.retryDelay = normalizeNumber(data.retryDelay, existing.retryDelay, 30, 86400)
+  if (data.script !== undefined) updateData.script = data.script?.trim() || null
+  if (data.startTime !== undefined) updateData.startTime = data.startTime || null
+  if (data.endTime !== undefined) updateData.endTime = data.endTime || null
+  if (data.timezone !== undefined) updateData.timezone = data.timezone || 'Asia/Karachi'
+
+  return prisma.campaign.update({
     where: { id },
-    data: {
-      ...updateData,
-      ...(data.dialingRatio === undefined && dialRatio !== undefined ? { dialingRatio: dialRatio } : {}),
-    },
+    data: updateData,
   })
 }
 
@@ -203,7 +247,20 @@ export const deleteCampaign = async (id: number) => {
     throw new AppError('Cannot delete an active campaign — pause it first', 400)
   }
 
-  await prisma.campaign.delete({ where: { id } })
+  // Delete dependent rows first so DRAFT/PAUSED/COMPLETED campaigns can be removed safely.
+  await prisma.$transaction(async (tx) => {
+    await tx.callback.deleteMany({
+      where: {
+        OR: [
+          { contact: { campaignId: id } },
+          { call: { campaignId: id } },
+        ],
+      },
+    })
+    await tx.call.deleteMany({ where: { campaignId: id } })
+    await tx.contact.deleteMany({ where: { campaignId: id } })
+    await tx.campaign.delete({ where: { id } })
+  })
 }
 
 export const updateCampaignStatus = async (
@@ -215,7 +272,6 @@ export const updateCampaignStatus = async (
   const existing = await prisma.campaign.findUnique({ where: { id } })
   if (!existing) throw new AppError('Campaign not found', 404)
 
-  // Validate transitions
   const allowed: Record<string, string[]> = {
     DRAFT:     ['ACTIVE'],
     ACTIVE:    ['PAUSED', 'COMPLETED'],
@@ -224,14 +280,12 @@ export const updateCampaignStatus = async (
   }
 
   if (!allowed[existing.status].includes(status)) {
-    throw new AppError(
-      `Cannot change status from ${existing.status} to ${status}`, 400
-    )
+    throw new AppError(`Cannot change status from ${existing.status} to ${status}`, 400)
   }
 
   const campaign = await prisma.campaign.update({
     where: { id },
-    data:  { status },
+    data:  { status, waitingReason: status === 'ACTIVE' ? null : existing.waitingReason },
   })
 
   await logAuditEvent({
@@ -250,13 +304,13 @@ export const cloneCampaign = async (id: number) => {
   const original = await prisma.campaign.findUnique({ where: { id } })
   if (!original) throw new AppError('Campaign not found', 404)
 
-  return await prisma.campaign.create({
+  return prisma.campaign.create({
     data: {
       name:         `${original.name} (Copy)`,
       description:  original.description ?? undefined,
-      mode:         original.mode ?? 'PROGRESSIVE',
+      mode:         normalizeMode(original.mode),
       callerId:     original.callerId ?? '',
-      dialingRatio: original.dialingRatio ?? 3,
+      dialingRatio: original.dialingRatio ?? 1,
       maxRetries:   original.maxRetries,
       retryDelay:   original.retryDelay,
       script:       original.script ?? undefined,
@@ -269,13 +323,23 @@ export const cloneCampaign = async (id: number) => {
 }
 
 export const getCampaignStats = async () => {
-  const [total, draft, active, paused, completed] = await Promise.all([
-    prisma.campaign.count(),
-    prisma.campaign.count({ where: { status: 'DRAFT'     } }),
-    prisma.campaign.count({ where: { status: 'ACTIVE'    } }),
-    prisma.campaign.count({ where: { status: 'PAUSED'    } }),
-    prisma.campaign.count({ where: { status: 'COMPLETED' } }),
-  ])
+  const grouped = await prisma.campaign.groupBy({
+    by: ['status'],
+    _count: { _all: true },
+  })
 
-  return { total, draft, active, paused, completed }
+  const counts = grouped.reduce<Record<string, number>>((acc, row) => {
+    acc[row.status] = row._count._all
+    return acc
+  }, {})
+
+  const total = Object.values(counts).reduce((sum, count) => sum + count, 0)
+
+  return {
+    total,
+    draft: counts.DRAFT ?? 0,
+    active: counts.ACTIVE ?? 0,
+    paused: counts.PAUSED ?? 0,
+    completed: counts.COMPLETED ?? 0,
+  }
 }
