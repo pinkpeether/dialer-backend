@@ -25,7 +25,7 @@ export const applyDispositionRetry = async (tx: Tx, args: {
 
   if (!contact) return
 
-  const maxRetries = contact.maxRetries ?? args.campaignMaxRetries ?? 3
+  const maxRetries = args.campaignMaxRetries ?? contact.maxRetries ?? 3
   const currentRetryCount = contact.retryCount ?? 0
 
   if (!shouldRetryDisposition(args.disposition)) {

@@ -43,7 +43,7 @@ CREATE INDEX IF NOT EXISTS "Notification_readAt_idx" ON "Notification" ("readAt"
 CREATE INDEX IF NOT EXISTS "Notification_createdAt_idx" ON "Notification" ("createdAt");
 
 ALTER TABLE "Campaign"
-  ADD COLUMN IF NOT EXISTS "mode" TEXT NOT NULL DEFAULT 'PREVIEW',
+  ADD COLUMN IF NOT EXISTS "mode" TEXT NOT NULL DEFAULT 'PROGRESSIVE',
   ADD COLUMN IF NOT EXISTS "waitingReason" TEXT,
   ADD COLUMN IF NOT EXISTS "lastSchedulerCheckAt" TIMESTAMP(3);
 

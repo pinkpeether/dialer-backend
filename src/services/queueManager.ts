@@ -28,12 +28,20 @@ export class QueueManager {
    * @param campaignId Campaign whose contacts should be enqueued
    */
   async initQueue(campaignId: number): Promise<void> {
+    const now = new Date()
     const contacts = await prisma.contact.findMany({
       where: {
         campaignId,
         status: 'PENDING',
+        OR: [
+          { nextRetryAt: null },
+          { nextRetryAt: { lte: now } },
+        ],
       },
-      orderBy: { createdAt: 'asc' },
+      orderBy: [
+        { nextRetryAt: 'asc' },
+        { createdAt: 'asc' },
+      ],
       select: { id: true, phone: true },
     })
     const queue: QueuedContact[] = contacts.map(c => ({ id: c.id, phone: c.phone }))

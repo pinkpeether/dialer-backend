@@ -106,7 +106,7 @@ model Campaign {
   startTime    String?
   endTime      String?
   timezone     String         @default("UTC")
-  mode         String         @default("PREVIEW")
+  mode         String         @default("PROGRESSIVE")
   waitingReason String?
   lastSchedulerCheckAt DateTime?
   createdAt    DateTime       @default(now())
