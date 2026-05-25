@@ -1,44 +1,81 @@
 import prisma from '../lib/prisma'
 import { queueManager } from './queueManager'
 import { getCallProvider } from '../providers/callProviderFactory'
-import { isCampaignDialableNow } from './campaignSchedule.service'
-
-/**
- * Dialer scheduler that regularly checks for running campaigns
- * and dispatches outbound calls for queued contacts.  This is
- * a simple interval‑based loop and does not yet support more
- * sophisticated scheduling or throttling.  It relies on the
- * QueueManager to provide the next contact to dial and on the
- * CallProvider abstraction to actually place the call.
- */
+import { isCampaignRuntimeAllowed } from './campaignRuntime.service'
+import { calculateDialSlots } from './predictivePacing.service'
 
 const SCHEDULER_INTERVAL_MS = 3000
 let schedulerRunning = false
 
+async function countActiveOutboundCalls(campaignId: number) {
+  return prisma.call.count({
+    where: {
+      campaignId,
+      direction: 'outgoing',
+      status: { in: ['INITIATED', 'RINGING', 'ANSWERED'] },
+    },
+  })
+}
+
 async function runSchedulerTick(): Promise<void> {
-  // Find all campaigns currently in ACTIVE status
   const campaigns = await prisma.campaign.findMany({ where: { status: 'ACTIVE' } })
   if (campaigns.length === 0) return
 
-  // Obtain a single instance of our call provider for all calls
   let provider
   try {
     provider = getCallProvider()
-  } catch (err) {
-    // If provider cannot be constructed there is nothing to do
+  } catch {
     return
   }
 
   for (const campaign of campaigns) {
-    const dialability = isCampaignDialableNow(campaign)
-    if (!dialability.allowed) {
+    const runtime = isCampaignRuntimeAllowed(campaign)
+
+    if (!runtime.allowed) {
       await prisma.campaign.update({
         where: { id: campaign.id },
         data: {
-          waitingReason: dialability.reason || 'NOT_DIALABLE',
+          waitingReason: runtime.reason || 'NOT_DIALABLE',
           lastSchedulerCheckAt: new Date(),
         },
       })
+      continue
+    }
+
+    await queueManager.refreshQueueIfEmpty(campaign.id)
+
+    const readyAgents = await prisma.user.count({
+      where: { status: 'READY', isActive: true },
+    })
+
+    const activeOutboundCalls = await countActiveOutboundCalls(campaign.id)
+
+    const pacing = calculateDialSlots({
+      mode: campaign.mode,
+      readyAgents,
+      activeOutboundCalls,
+      dialingRatio: campaign.dialingRatio,
+      queueSize: queueManager.size(campaign.id),
+    })
+
+    if (pacing.slots <= 0) {
+      await prisma.campaign.update({
+        where: { id: campaign.id },
+        data: {
+          waitingReason: pacing.reason || null,
+          lastSchedulerCheckAt: new Date(),
+        },
+      })
+
+      const hasRemainingWork = await queueManager.campaignHasRemainingWork(campaign.id)
+      if (!hasRemainingWork) {
+        await prisma.campaign.update({
+          where: { id: campaign.id },
+          data: { status: 'COMPLETED', waitingReason: null },
+        })
+        await queueManager.clear(campaign.id)
+      }
+
       continue
     }
 
@@ -52,23 +89,10 @@ async function runSchedulerTick(): Promise<void> {
       })
     }
 
-    // Ensure the queue for this campaign is initialised
-    if (!queueManager.hasQueue(campaign.id)) {
-      await queueManager.initQueue(campaign.id)
-    }
-
-    // Count currently available agents
-    const availableAgents = await prisma.user.findMany({
-      where: { status: 'READY' },
-      select: { id: true },
-    })
-    const slots = availableAgents.length * campaign.dialingRatio
-    if (slots <= 0) continue
-
-    for (let i = 0; i < slots; i++) {
+    for (let i = 0; i < pacing.slots; i++) {
       const queued = queueManager.dequeue(campaign.id)
       if (!queued) break
-      // Create call record with INITIATED status
+
       const call = await prisma.call.create({
         data: {
           contactId: queued.id,
@@ -76,36 +100,41 @@ async function runSchedulerTick(): Promise<void> {
           status: 'INITIATED',
           direction: 'outgoing',
           remoteNumber: queued.phone,
-          source: 'provider',
+          source: `scheduler:${pacing.mode.toLowerCase()}`,
         },
       })
-      // Update contact status to CALLING
-      await prisma.contact.update({ where: { id: queued.id }, data: { status: 'CALLING' } })
-      // Initiate call via provider
+
+      await prisma.contact.update({
+        where: { id: queued.id },
+        data: {
+          status: 'CALLING',
+          lastCalledAt: new Date(),
+        },
+      })
+
       try {
         await provider.startOutboundCall(
           queued.phone,
           campaign.callerId,
           { callId: String(call.id), campaignId: campaign.id, contactId: queued.id },
         )
-      } catch (err) {
-        // If the call fails to initiate, mark the contact as FAILED and record call status
+      } catch {
         await prisma.call.update({ where: { id: call.id }, data: { status: 'FAILED' } })
         await prisma.contact.update({ where: { id: queued.id }, data: { status: 'FAILED' } })
       }
     }
 
-    // If queue is empty after dialing all slots, mark campaign as COMPLETED
-    if (queueManager.size(campaign.id) === 0) {
-      await prisma.campaign.update({ where: { id: campaign.id }, data: { status: 'COMPLETED' } })
+    const hasRemainingWork = await queueManager.campaignHasRemainingWork(campaign.id)
+    if (!hasRemainingWork) {
+      await prisma.campaign.update({
+        where: { id: campaign.id },
+        data: { status: 'COMPLETED', waitingReason: null },
+      })
       await queueManager.clear(campaign.id)
     }
   }
 }
 
-// Start the scheduler loop.  In the future this could be moved into
-// an external worker process or replaced with a more sophisticated
-// job scheduler (Bull, Agenda, etc.).
 setInterval(() => {
   if (schedulerRunning) return
   schedulerRunning = true

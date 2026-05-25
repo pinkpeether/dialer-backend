@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express'
 import * as DialerService   from '../services/dialer.service'
 import * as TwilioService   from '../services/twilio.service'
+import * as PreviewDialingService from '../services/previewDialing.service'
 import { sendSuccess, sendError } from '../utils/response'
 import { AuthRequest }      from '../middleware/auth'
 import logger               from '../utils/logger'
@@ -32,6 +33,43 @@ export const getActiveCampaigns = async (
   try {
     const campaigns = DialerService.getActiveCampaigns()
     return sendSuccess(res, { activeCampaigns: campaigns }, 'Active campaigns fetched')
+  } catch (err) { return next(err) }
+}
+
+export const getNextPreviewContact = async (
+  req: AuthRequest, res: Response, next: NextFunction
+) => {
+  try {
+    const result = await PreviewDialingService.getNextPreviewContact(
+      Number(req.params.campaignId),
+      req.user!.id,
+    )
+    return sendSuccess(res, result, 'Preview contact fetched')
+  } catch (err) { return next(err) }
+}
+
+export const releasePreviewContact = async (
+  req: AuthRequest, res: Response, next: NextFunction
+) => {
+  try {
+    const result = await PreviewDialingService.releasePreviewContact(
+      Number(req.params.contactId),
+      Number(req.params.campaignId),
+    )
+    return sendSuccess(res, result, 'Preview contact released')
+  } catch (err) { return next(err) }
+}
+
+export const callPreviewContact = async (
+  req: AuthRequest, res: Response, next: NextFunction
+) => {
+  try {
+    const result = await PreviewDialingService.callPreviewContact(
+      Number(req.params.contactId),
+      Number(req.params.campaignId),
+      req.user!.id,
+    )
+    return sendSuccess(res, result, 'Preview call initiated')
   } catch (err) { return next(err) }
 }
 

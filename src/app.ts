@@ -20,6 +20,7 @@ import settingsRoutes from './routes/settings.routes'
 import notificationRoutes from './routes/notifications.routes'
 import recordingRoutes from './routes/recordings.routes'
 import exportRoutes   from './routes/exports.routes'
+import opsRoutes      from './routes/ops.routes'
 
 import './services/dialerScheduler'
 
@@ -83,6 +84,7 @@ app.use('/api/settings', settingsRoutes)
 app.use('/api/notifications', notificationRoutes)
 app.use('/api/recordings', recordingRoutes)
 app.use('/api/exports', exportRoutes)
+app.use('/api/ops', opsRoutes)
 
 app.use((_req, _res, next) => {
   next(new AppError('Route not found', 404))

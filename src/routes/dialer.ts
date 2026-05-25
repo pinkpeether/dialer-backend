@@ -13,6 +13,7 @@ router.use('/call/manual',     authenticate)
 router.use('/call/adhoc',      authenticate)
 router.use('/call/hangup',     authenticate)
 router.use('/call/dtmf',       authenticate)
+router.use('/preview',         authenticate)
 
 // Agent softphone token
 router.get('/token', DialerController.getAccessToken)
@@ -29,6 +30,20 @@ router.post('/stop/:campaignId',
 router.get('/active',
   authorize('ADMIN', 'SUPERVISOR'),
   DialerController.getActiveCampaigns
+)
+
+// Preview dialing
+router.post('/preview/:campaignId/next',
+  authorize('AGENT', 'ADMIN', 'SUPERVISOR'),
+  DialerController.getNextPreviewContact
+)
+router.post('/preview/:campaignId/:contactId/release',
+  authorize('AGENT', 'ADMIN', 'SUPERVISOR'),
+  DialerController.releasePreviewContact
+)
+router.post('/preview/:campaignId/:contactId/call',
+  authorize('AGENT', 'ADMIN', 'SUPERVISOR'),
+  DialerController.callPreviewContact
 )
 
 // Manual call (requires contactId + campaignId)
