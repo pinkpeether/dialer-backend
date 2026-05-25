@@ -13,6 +13,10 @@ router.get('/summary',    ReportsController.getSummary)
 // GET /api/reports/calls?from=&to=&granularity=day
 router.get('/calls',      ReportsController.getCallTrend)
 
+// GET /api/reports/trend?from=&to=&granularity=day
+// RC smoke compatibility alias for the same call trend payload.
+router.get('/trend',      ReportsController.getCallTrend)
+
 // GET /api/reports/campaigns
 router.get('/campaigns',  ReportsController.getCampaignBreakdown)
 

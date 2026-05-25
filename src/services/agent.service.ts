@@ -30,22 +30,21 @@ export const getAllAgents = async (filters: {
     ]
   }
 
-  const [agents, total] = await Promise.all([
-    prisma.user.findMany({
-      where,
-      select: {
-        id: true, agentCode: true, name: true,
-        email: true, role: true, extension: true,
-        phone: true, status: true, isActive: true,
-        createdAt: true,
-        _count: { select: { calls: true } }
-      },
-      orderBy: { createdAt: 'desc' },
-      skip:  (page - 1) * limit,
-      take:  limit,
-    }),
-    prisma.user.count({ where }),
-  ])
+  // Keep sequential for small Supabase pooler connections.
+  const agents = await prisma.user.findMany({
+    where,
+    select: {
+      id: true, agentCode: true, name: true,
+      email: true, role: true, extension: true,
+      phone: true, status: true, isActive: true,
+      createdAt: true,
+      _count: { select: { calls: true } }
+    },
+    orderBy: { createdAt: 'desc' },
+    skip:  (page - 1) * limit,
+    take:  limit,
+  })
+  const total = await prisma.user.count({ where })
 
   return {
     agents,
@@ -203,14 +202,22 @@ export const resetAgentPassword = async (
 }
 
 export const getAgentStats = async () => {
-  const [total, online, ready, busy, wrapUp, offline] = await Promise.all([
-    prisma.user.count(),
-    prisma.user.count({ where: { status: 'ONLINE'   } }),
-    prisma.user.count({ where: { status: 'READY'    } }),
-    prisma.user.count({ where: { status: 'BUSY'     } }),
-    prisma.user.count({ where: { status: 'WRAP_UP'  } }),
-    prisma.user.count({ where: { status: 'OFFLINE'  } }),
-  ])
+  const grouped = await prisma.user.groupBy({
+    by: ['status'],
+    _count: { _all: true },
+  })
 
-  return { total, online, ready, busy, wrapUp, offline }
+  const counts = grouped.reduce<Record<string, number>>((acc, row) => {
+    acc[row.status] = row._count._all
+    return acc
+  }, {})
+
+  return {
+    total: grouped.reduce((sum, row) => sum + row._count._all, 0),
+    online: counts.ONLINE ?? 0,
+    ready: counts.READY ?? 0,
+    busy: counts.BUSY ?? 0,
+    wrapUp: counts.WRAP_UP ?? 0,
+    offline: counts.OFFLINE ?? 0,
+  }
 }
