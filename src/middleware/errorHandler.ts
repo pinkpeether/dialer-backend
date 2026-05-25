@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express'
 import logger from '../utils/logger'
+import { recordRuntimeError } from '../services/runtimeMetrics.service'
 
 export class AppError extends Error {
   statusCode: number
@@ -26,6 +27,12 @@ export const errorHandler = (
   const safeStatusCode = statusCode >= 400 && statusCode < 600 ? statusCode : 500
   const isProduction = process.env.NODE_ENV === 'production'
   const message = err.message || 'Internal Server Error'
+
+  recordRuntimeError(err, {
+    method: req.method,
+    path: req.originalUrl || req.path,
+    statusCode: safeStatusCode,
+  })
 
   logger.error(`${req.method} ${req.originalUrl || req.path} — ${message}`)
 

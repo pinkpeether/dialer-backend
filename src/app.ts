@@ -21,6 +21,8 @@ import notificationRoutes from './routes/notifications.routes'
 import recordingRoutes from './routes/recordings.routes'
 import exportRoutes   from './routes/exports.routes'
 import opsRoutes      from './routes/ops.routes'
+import monitoringRoutes from './routes/monitoring.routes'
+import { requestMetricsMiddleware } from './middleware/requestMetrics.middleware'
 
 import './services/dialerScheduler'
 
@@ -59,6 +61,7 @@ app.use(cors({
 
 app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true }))
+app.use(requestMetricsMiddleware)
 
 app.get('/api/health', (_req, res) => {
   res.json({
@@ -85,6 +88,7 @@ app.use('/api/notifications', notificationRoutes)
 app.use('/api/recordings', recordingRoutes)
 app.use('/api/exports', exportRoutes)
 app.use('/api/ops', opsRoutes)
+app.use('/api/monitoring', monitoringRoutes)
 
 app.use((_req, _res, next) => {
   next(new AppError('Route not found', 404))
