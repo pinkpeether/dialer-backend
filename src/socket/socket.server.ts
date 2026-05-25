@@ -47,16 +47,6 @@ export const initSocket = (httpServer: HTTPServer): SocketServer => {
 
     socket.on('disconnect', async () => {
       console.log(`🔌 Socket disconnected: ${user?.email}`)
-      const { prisma } = await import('../lib/prisma')
-      await prisma.user.update({
-        where: { id: user.id },
-        data:  { status: 'OFFLINE' as any },
-      }).catch(() => {})
-      io.to('dashboard').emit('agent:statusChanged', {
-        agentId: user.id,
-        status:  'OFFLINE',
-        name:    user.name,
-      })
     })
   })
 

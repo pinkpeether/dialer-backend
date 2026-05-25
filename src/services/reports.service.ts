@@ -1,4 +1,5 @@
 import prisma from '../lib/prisma'
+import { Prisma } from '@prisma/client'
 
 export const getSummary = async (filters: {
   from?: Date
@@ -58,24 +59,27 @@ export const getCallTrend = async (filters: {
   to?: Date
   granularity?: 'day' | 'week'
 }) => {
-  const { from, to } = filters
+  const { from, to, granularity } = filters
+  const bucket = granularity === 'week'
+    ? Prisma.sql`DATE_TRUNC('week', "startedAt")`
+    : Prisma.sql`DATE_TRUNC('day', "startedAt")`
 
   // Use raw query for time-series bucketing — prisma doesn't natively support date_trunc in groupBy
-  const rows = await prisma.$queryRaw<Array<{ date: string; total: bigint; answered: bigint }>>`
+  const rows = await prisma.$queryRaw<Array<{ date: Date; total: bigint; answered: bigint }>>(Prisma.sql`
     SELECT
-      DATE_TRUNC('day', "startedAt") AS date,
+      ${bucket} AS date,
       COUNT(*)                        AS total,
       COUNT(*) FILTER (WHERE disposition = 'ANSWERED') AS answered
     FROM "Call"
     WHERE 1=1
-      ${ from ? prisma.$queryRaw`AND "startedAt" >= ${from}` : prisma.$queryRaw`` }
-      ${ to   ? prisma.$queryRaw`AND "startedAt" <= ${to}`   : prisma.$queryRaw`` }
+      ${ from ? Prisma.sql`AND "startedAt" >= ${from}` : Prisma.empty }
+      ${ to   ? Prisma.sql`AND "startedAt" <= ${to}`   : Prisma.empty }
     GROUP BY 1
     ORDER BY 1 ASC
-  `
+  `)
 
   return rows.map(r => ({
-    date:     r.date,
+    date:     r.date instanceof Date ? r.date.toISOString() : String(r.date),
     total:    Number(r.total),
     answered: Number(r.answered),
   }))
