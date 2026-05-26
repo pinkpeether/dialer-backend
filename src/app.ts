@@ -22,6 +22,7 @@ import recordingRoutes from './routes/recordings.routes'
 import exportRoutes   from './routes/exports.routes'
 import opsRoutes      from './routes/ops.routes'
 import monitoringRoutes from './routes/monitoring.routes'
+import supportDiagnosticsRoutes from './routes/supportDiagnostics.routes'
 import { requestMetricsMiddleware } from './middleware/requestMetrics.middleware'
 
 import './services/dialerScheduler'
@@ -89,6 +90,7 @@ app.use('/api/recordings', recordingRoutes)
 app.use('/api/exports', exportRoutes)
 app.use('/api/ops', opsRoutes)
 app.use('/api/monitoring', monitoringRoutes)
+app.use('/api/support/diagnostics', supportDiagnosticsRoutes)
 
 app.use((_req, _res, next) => {
   next(new AppError('Route not found', 404))
