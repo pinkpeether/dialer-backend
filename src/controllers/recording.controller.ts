@@ -9,6 +9,23 @@ const getDate = (value: unknown): Date | undefined => {
   return Number.isNaN(parsed.getTime()) ? undefined : parsed
 }
 
+const getBaseApiUrl = (req: AuthRequest) => {
+  const configured = process.env.API_PUBLIC_URL || process.env.BACKEND_PUBLIC_URL
+  if (configured) return configured.replace(/\/$/, '').endsWith('/api')
+    ? configured.replace(/\/$/, '')
+    : `${configured.replace(/\/$/, '')}/api`
+
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim()
+  const forwardedHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim()
+  const proto = forwardedProto || req.protocol || 'https'
+  const host = forwardedHost || req.get('host')
+  return `${proto}://${host}/api`
+}
+
+const ipAddress = (req: AuthRequest) => {
+  return String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim() || null
+}
+
 export const list = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const result = await RecordingService.listRecordings({
@@ -37,8 +54,35 @@ export const detail = async (req: AuthRequest, res: Response, next: NextFunction
 
 export const access = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const accessData = await RecordingService.getRecordingAccess(Number(req.params.callId))
+    const accessData = await RecordingService.getRecordingAccess(Number(req.params.callId), {
+      actor: req.user,
+      ipAddress: ipAddress(req),
+      baseApiUrl: getBaseApiUrl(req),
+    })
     return sendSuccess(res, accessData, 'Recording access fetched')
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export const stream = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const redirectUrl = await RecordingService.getRecordingPlaybackRedirect(
+      Number(req.params.callId),
+      String(req.query.token || '')
+    )
+
+    res.setHeader('Cache-Control', 'private, no-store, max-age=0')
+    return res.redirect(302, redirectUrl)
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export const health = async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const result = await RecordingService.getRecordingStorageHealth()
+    return sendSuccess(res, result, 'Recording storage health fetched')
   } catch (err) {
     return next(err)
   }
