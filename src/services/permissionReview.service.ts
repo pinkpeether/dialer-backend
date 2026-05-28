@@ -9,7 +9,7 @@ export type PermissionReviewRoute = {
 }
 
 const routeMatrix: PermissionReviewRoute[] = [
-  { method: 'GET', path: '/api/permission-review', frontendRoles: ['ADMIN'], backendRoles: ['ADMIN'], level: 'HIGH', status: 'MATCHED' },
+  { method: 'GET', path: '/api/support/diagnostics/access-review', frontendRoles: ['ADMIN'], backendRoles: ['ADMIN'], level: 'HIGH', status: 'MATCHED' },
   { method: 'GET', path: '/api/audit-logs', frontendRoles: ['ADMIN'], backendRoles: ['ADMIN'], level: 'HIGH', status: 'MATCHED' },
   { method: 'GET/PATCH', path: '/api/settings', frontendRoles: ['ADMIN'], backendRoles: ['ADMIN'], level: 'HIGH', status: 'MATCHED' },
   { method: 'GET', path: '/api/monitoring/summary', frontendRoles: ['ADMIN', 'SUPERVISOR'], backendRoles: ['ADMIN', 'SUPERVISOR'], level: 'MEDIUM', status: 'MATCHED' },
