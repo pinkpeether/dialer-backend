@@ -8,8 +8,6 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// ── Enumerations ─────────────────────────────────────────────────────────────
-
 enum UserRole {
   ADMIN
   AGENT
@@ -71,72 +69,69 @@ enum AgentSessionStatus {
   DISCONNECTED
 }
 
-// ── Models ───────────────────────────────────────────────────────────────────
-
 model User {
-  id           Int        @id @default(autoincrement())
-  name         String
-  email        String     @unique
-  passwordHash String
-  role         UserRole   @default(AGENT)
-  status       UserStatus @default(OFFLINE)
-  agentCode    String?    @unique
-  extension    String?
-  phone        String?
-  isActive     Boolean    @default(true)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-  // Relations
-  calls        Call[]
-  sessions     AgentSession[]
-  callbacks    Callback[]
-  dncEntries   DNCList[]
+  id              Int              @id @default(autoincrement())
+  name            String
+  email           String           @unique
+  passwordHash    String
+  role            UserRole         @default(AGENT)
+  status          UserStatus       @default(OFFLINE)
+  agentCode       String?          @unique
+  extension       String?
+  phone           String?
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  calls           Call[]
+  sessions        AgentSession[]
+  callbacks       Callback[]
+  dncEntries      DNCList[]
+  spoofingNumbers SpoofingNumber[]
 }
 
 model Campaign {
-  id           Int            @id @default(autoincrement())
-  name         String
-  description  String?
-  status       CampaignStatus @default(DRAFT)
-  callerId     String
-  dialingRatio Int            @default(1)
-  maxRetries   Int            @default(3)
-  retryDelay   Int            @default(300)
-  script       String?
-  startTime    String?
-  endTime      String?
-  timezone     String         @default("UTC")
-  mode         String         @default("PROGRESSIVE")
-  waitingReason String?
+  id                   Int              @id @default(autoincrement())
+  name                 String
+  description          String?
+  status               CampaignStatus   @default(DRAFT)
+  callerId             String
+  dialingRatio         Int              @default(1)
+  maxRetries           Int              @default(3)
+  retryDelay           Int              @default(300)
+  script               String?
+  startTime            String?
+  endTime              String?
+  timezone             String           @default("UTC")
+  mode                 String           @default("PROGRESSIVE")
+  waitingReason        String?
   lastSchedulerCheckAt DateTime?
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-  // Relations
-  contacts     Contact[]
-  calls        Call[]
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  contacts             Contact[]
+  calls                Call[]
+  spoofingNumbers      SpoofingNumber[]
 }
 
 model Contact {
-  id           Int           @id @default(autoincrement())
-  name         String?
-  phone        String
-  email        String?
-  company      String?
-  status       ContactStatus @default(PENDING)
-  callbackAt   DateTime?
-  notes        String?
-  retryCount   Int           @default(0)
-  maxRetries   Int           @default(3)
-  lastCalledAt DateTime?
-  nextRetryAt  DateTime?
+  id              Int           @id @default(autoincrement())
+  name            String?
+  phone           String
+  email           String?
+  company         String?
+  status          ContactStatus @default(PENDING)
+  callbackAt      DateTime?
+  notes           String?
+  retryCount      Int           @default(0)
+  maxRetries      Int           @default(3)
+  lastCalledAt    DateTime?
+  nextRetryAt     DateTime?
   lastDisposition String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  // Relations
-  campaignId   Int?
-  campaign     Campaign?     @relation(fields: [campaignId], references: [id])
-  calls        Call[]
-  callbacks    Callback[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  campaignId      Int?
+  campaign        Campaign?     @relation(fields: [campaignId], references: [id])
+  calls           Call[]
+  callbacks       Callback[]
 }
 
 model Call {
@@ -146,7 +141,7 @@ model Call {
   agentId        Int?
   providerCallId String?
   twilioCallSid  String?
-  direction       String?
+  direction      String?
   remoteNumber   String?
   source         String?
   status         CallStatus       @default(INITIATED)
@@ -160,7 +155,6 @@ model Call {
   endedAt        DateTime?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
-  // Relations
   contact        Contact          @relation(fields: [contactId], references: [id])
   campaign       Campaign         @relation(fields: [campaignId], references: [id])
   agent          User?            @relation(fields: [agentId], references: [id])
@@ -168,19 +162,18 @@ model Call {
 }
 
 model Callback {
-  id          Int            @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   contactId   Int?
   callId      Int?
   agentId     Int
   scheduledAt DateTime
   notes       String?
-  status      String         @default("PENDING")
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  // Relations
-  contact     Contact?  @relation(fields: [contactId], references: [id])
-  call        Call?     @relation(fields: [callId],    references: [id])
-  agent       User      @relation(fields: [agentId],   references: [id])
+  status      String   @default("PENDING")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  contact     Contact? @relation(fields: [contactId], references: [id])
+  call        Call?    @relation(fields: [callId], references: [id])
+  agent       User     @relation(fields: [agentId], references: [id])
 }
 
 model AgentSession {
@@ -190,18 +183,16 @@ model AgentSession {
   status         AgentSessionStatus @default(IDLE)
   connectedAt    DateTime           @default(now())
   disconnectedAt DateTime?
-  // Relations
   agent          User               @relation(fields: [agentId], references: [id])
 }
 
 model DNCList {
-  id             Int      @id @default(autoincrement())
-  phone          String   @unique
-  reason         String?
-  addedByUserId  Int?
-  createdAt      DateTime @default(now())
-  // Relations
-  addedBy        User?    @relation(fields: [addedByUserId], references: [id])
+  id            Int      @id @default(autoincrement())
+  phone         String   @unique
+  reason        String?
+  addedByUserId Int?
+  createdAt     DateTime @default(now())
+  addedBy       User?    @relation(fields: [addedByUserId], references: [id])
 }
 
 model AuditLog {
@@ -230,17 +221,40 @@ model SystemSetting {
 }
 
 model Notification {
-  id        Int      @id @default(autoincrement())
+  id        Int       @id @default(autoincrement())
   userId    Int?
   type      String
   title     String
   body      String?
   metadata  Json?
   readAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId])
   @@index([type])
   @@index([readAt])
   @@index([createdAt])
+}
+
+model SpoofingNumber {
+  id            Int       @id @default(autoincrement())
+  userId        Int?      @map("user_id")
+  campaignId    Int?      @map("campaign_id")
+  displayNumber String    @map("display_number") @db.VarChar(20)
+  displayName   String?   @map("display_name") @db.VarChar(100)
+  provider      String    @default("generic") @db.VarChar(40)
+  providerRef   String?   @map("provider_ref") @db.VarChar(120)
+  isActive      Boolean   @default(true) @map("is_active")
+  isVerified    Boolean   @default(false) @map("is_verified")
+  scope         String    @default("all") @db.VarChar(20)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  user          User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  campaign      Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([campaignId])
+  @@index([isActive])
+  @@index([isVerified])
+  @@map("spoofing_numbers")
 }

@@ -3,6 +3,7 @@ import { queueManager } from './queueManager'
 import { getCallProvider } from '../providers/callProviderFactory'
 import { isCampaignRuntimeAllowed } from './campaignRuntime.service'
 import { calculateDialSlots } from './predictivePacing.service'
+import { spoofingService } from './spoofing.service'
 
 const SCHEDULER_INTERVAL_MS = 3000
 let schedulerRunning = false
@@ -79,7 +80,7 @@ async function runSchedulerTick(): Promise<void> {
       continue
     }
 
-    if (campaign.waitingReason) {
+        if (campaign.waitingReason) {
       await prisma.campaign.update({
         where: { id: campaign.id },
         data: {
@@ -87,6 +88,16 @@ async function runSchedulerTick(): Promise<void> {
           lastSchedulerCheckAt: new Date(),
         },
       })
+    }
+
+    let campaignCallerId = campaign.callerId
+
+    try {
+      campaignCallerId =
+        (await spoofingService.getCallerIdForCall(null, campaign.id)) ||
+        campaign.callerId
+    } catch {
+      campaignCallerId = campaign.callerId
     }
 
     for (let i = 0; i < pacing.slots; i++) {
@@ -115,8 +126,13 @@ async function runSchedulerTick(): Promise<void> {
       try {
         await provider.startOutboundCall(
           queued.phone,
-          campaign.callerId,
-          { callId: String(call.id), campaignId: campaign.id, contactId: queued.id },
+          campaignCallerId,
+          {
+            callId: String(call.id),
+            campaignId: campaign.id,
+            contactId: queued.id,
+            callerId: campaignCallerId,
+          },
         )
       } catch {
         await prisma.call.update({ where: { id: call.id }, data: { status: 'FAILED' } })

@@ -5,6 +5,9 @@ import { applyDispositionRetry } from './retry.service'
 import { logAuditEvent } from './audit.service'
 import { AUDIT_ACTIONS } from '../constants/auditActions'
 
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 type CallAccessUser = {
   id: number
   role: string
@@ -28,6 +31,9 @@ export type SipCallLogInput = {
   agentId?: number
 }
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 const clampPagination = (page = 1, limit = 20) => ({
   page: Number.isFinite(page) && page > 0 ? page : 1,
   limit: Number.isFinite(limit) && limit > 0 ? Math.min(limit, 200) : 20,
@@ -89,6 +95,9 @@ const getOrCreateSipContact = async (remoteNumber: string, campaignId: number) =
   })
 }
 
+// ---------------------------------------------------------------------------
+// createSipCallLog
+// ---------------------------------------------------------------------------
 export const createSipCallLog = async (input: SipCallLogInput, user?: CallAccessUser) => {
   const remoteNumber = input.remoteNumber.trim()
   if (!remoteNumber) throw new AppError('remoteNumber is required', 400)
@@ -126,6 +135,9 @@ export const createSipCallLog = async (input: SipCallLogInput, user?: CallAccess
   }
 }
 
+// ---------------------------------------------------------------------------
+// listCalls
+// ---------------------------------------------------------------------------
 export const listCalls = async (
   filters: ListCallsFilters,
   user?: CallAccessUser
@@ -172,6 +184,9 @@ export const listCalls = async (
   }
 }
 
+// ---------------------------------------------------------------------------
+// getCallById
+// ---------------------------------------------------------------------------
 export const getCallById = async (id: number, user?: CallAccessUser) => {
   const call = await prisma.call.findUnique({
     where: { id },
@@ -187,6 +202,9 @@ export const getCallById = async (id: number, user?: CallAccessUser) => {
   return call
 }
 
+// ---------------------------------------------------------------------------
+// updateCallDisposition
+// ---------------------------------------------------------------------------
 export const updateCallDisposition = async (
   id: number,
   disposition: CallDisposition,
@@ -314,6 +332,9 @@ export const updateCallDisposition = async (
   return call
 }
 
+// ---------------------------------------------------------------------------
+// markCallEnded
+// ---------------------------------------------------------------------------
 export const markCallEnded = async (
   id: number,
   endedAtInput?: Date,
@@ -353,6 +374,9 @@ export const markCallEnded = async (
   })
 }
 
+// ---------------------------------------------------------------------------
+// getCallsForContact
+// ---------------------------------------------------------------------------
 export const getCallsForContact = async (
   contactId: number,
   user?: CallAccessUser
