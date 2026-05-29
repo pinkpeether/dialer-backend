@@ -9,6 +9,10 @@ export type TranscriptionResult = {
   language?: string
   provider: string
   model?: string
+  usage?: {
+    seconds?: number
+    cost?: number
+  }
 }
 
 export type SummaryResult = {
@@ -23,32 +27,28 @@ export type SentimentResult = {
 }
 
 const SUPPORTED_AUDIO_EXTENSIONS = new Set([
-  '.mp3',
-  '.mp4',
-  '.mpeg',
-  '.mpga',
-  '.m4a',
-  '.wav',
-  '.webm',
+  '.mp3', '.mp4', '.mpeg', '.mpga', '.m4a', '.wav', '.webm',
 ])
 
-const getOpenAiClient = () => {
-  return new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-  })
-}
+const getProvider = () => (process.env.AI_PROVIDER || '').toLowerCase()
 
 export const assertAiConfigured = () => {
-  if (!process.env.AI_PROVIDER) {
+  const provider = getProvider()
+
+  if (!provider) {
     throw new Error('AI provider is not configured. Set AI_PROVIDER before enabling Phase 4.')
   }
 
-  if (process.env.AI_PROVIDER.toLowerCase() !== 'openai') {
-    throw new Error(`Unsupported AI_PROVIDER "${process.env.AI_PROVIDER}". Supported provider: openai.`)
+  if (!['openai', 'openrouter'].includes(provider)) {
+    throw new Error(`Unsupported AI_PROVIDER "${process.env.AI_PROVIDER}". Supported providers: openai, openrouter.`)
   }
 
-  if (!process.env.OPENAI_API_KEY) {
+  if (provider === 'openai' && !process.env.OPENAI_API_KEY) {
     throw new Error('OPENAI_API_KEY is not configured. Set OPENAI_API_KEY before enabling Phase 4.')
+  }
+
+  if (provider === 'openrouter' && !process.env.OPENROUTER_API_KEY) {
+    throw new Error('OPENROUTER_API_KEY is not configured. Set OPENROUTER_API_KEY before enabling Phase 4.')
   }
 }
 
@@ -56,9 +56,7 @@ const getAudioExtension = (recordingUrl: string, contentType?: string | null) =>
   const urlPath = new URL(recordingUrl).pathname
   const extFromUrl = path.extname(urlPath).toLowerCase()
 
-  if (SUPPORTED_AUDIO_EXTENSIONS.has(extFromUrl)) {
-    return extFromUrl
-  }
+  if (SUPPORTED_AUDIO_EXTENSIONS.has(extFromUrl)) return extFromUrl
 
   if (contentType?.includes('mpeg')) return '.mp3'
   if (contentType?.includes('mp4')) return '.mp4'
@@ -91,28 +89,94 @@ const downloadRecordingToTempFile = async (recordingUrl: string) => {
 
   await fs.promises.writeFile(tempFile, buffer)
 
-  return tempFile
+  return { tempFile, extension, buffer }
+}
+
+const transcribeWithOpenAI = async (tempFile: string, model: string): Promise<TranscriptionResult> => {
+  const client = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  })
+
+  const transcription = await client.audio.transcriptions.create({
+    file: fs.createReadStream(tempFile),
+    model,
+  })
+
+  return {
+    text: transcription.text,
+    provider: 'openai',
+    model,
+  }
+}
+
+const transcribeWithOpenRouter = async (
+  buffer: Buffer,
+  extension: string,
+  model: string
+): Promise<TranscriptionResult> => {
+  const format = extension.replace('.', '') || 'wav'
+
+  const response = await fetch('https://openrouter.ai/api/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      'HTTP-Referer': process.env.OPENROUTER_SITE_URL || 'https://ptdt-dialer.local',
+      'X-OpenRouter-Title': process.env.OPENROUTER_SITE_NAME || 'PTDT Dialer',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      provider: {
+        allow_fallbacks: true,
+      },
+      input_audio: {
+        data: buffer.toString('base64'),
+        format,
+      },
+    }),
+  })
+
+  const raw = await response.text()
+
+  if (!response.ok) {
+    throw new Error(`OpenRouter transcription failed. HTTP ${response.status}: ${raw}`)
+  }
+
+  const parsed = JSON.parse(raw) as {
+    text?: string
+    usage?: {
+      seconds?: number
+      cost?: number
+    }
+  }
+
+  return {
+    text: parsed.text || '',
+    provider: 'openrouter',
+    model,
+    usage: parsed.usage,
+  }
 }
 
 export const transcribeRecording = async (recordingUrl: string): Promise<TranscriptionResult> => {
   assertAiConfigured()
 
-  const model = process.env.AI_TRANSCRIPTION_MODEL || 'gpt-4o-mini-transcribe'
-  const client = getOpenAiClient()
+  const provider = getProvider()
+  const defaultModel =
+    provider === 'openrouter'
+      ? 'openai/whisper-large-v3-turbo'
+      : 'gpt-4o-mini-transcribe'
 
-  const tempFile = await downloadRecordingToTempFile(recordingUrl)
+  const model = process.env.AI_TRANSCRIPTION_MODEL || defaultModel
+
+  const { tempFile, extension, buffer } = await downloadRecordingToTempFile(recordingUrl)
 
   try {
-    const transcription = await client.audio.transcriptions.create({
-      file: fs.createReadStream(tempFile),
-      model,
-    })
-
-    return {
-      text: transcription.text,
-      provider: 'openai',
-      model,
+    if (provider === 'openrouter') {
+      return await transcribeWithOpenRouter(buffer, extension, model)
     }
+
+    return await transcribeWithOpenAI(tempFile, model)
   } finally {
     await fs.promises.unlink(tempFile).catch(() => undefined)
   }
