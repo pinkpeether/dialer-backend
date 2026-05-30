@@ -30,23 +30,33 @@ const safePackageVersion = () => {
 }
 
 export const getSupportDiagnostics = async () => {
-  const db = await checkDb()
+  const [dbResult, monitoringResult, recordingsResult] = await Promise.allSettled([
+    checkDb(),
+    getMonitoringSummary(),
+    getRecordingStorageHealth(),
+  ])
 
-  let monitoring: unknown = null
-  let monitoringError: string | null = null
-  try {
-    monitoring = await getMonitoringSummary()
-  } catch (err) {
-    monitoringError = err instanceof Error ? err.message.slice(0, 300) : 'Monitoring snapshot failed'
-  }
+  const db = dbResult.status === 'fulfilled'
+    ? dbResult.value
+    : {
+        ok: false,
+        latencyMs: 0,
+        error: dbResult.reason instanceof Error ? dbResult.reason.message.slice(0, 300) : 'DB check failed',
+      }
 
-  let recordings: unknown = null
-  let recordingsError: string | null = null
-  try {
-    recordings = await getRecordingStorageHealth()
-  } catch (err) {
-    recordingsError = err instanceof Error ? err.message.slice(0, 300) : 'Recording health snapshot failed'
-  }
+  const monitoring = monitoringResult.status === 'fulfilled' ? monitoringResult.value : null
+  const monitoringError = monitoringResult.status === 'rejected'
+    ? monitoringResult.reason instanceof Error
+      ? monitoringResult.reason.message.slice(0, 300)
+      : 'Monitoring snapshot failed'
+    : null
+
+  const recordings = recordingsResult.status === 'fulfilled' ? recordingsResult.value : null
+  const recordingsError = recordingsResult.status === 'rejected'
+    ? recordingsResult.reason instanceof Error
+      ? recordingsResult.reason.message.slice(0, 300)
+      : 'Recording health snapshot failed'
+    : null
 
   return {
     generatedAt: new Date().toISOString(),
