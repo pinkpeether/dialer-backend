@@ -34,16 +34,19 @@ export const updateSettings = async (
   const normalizedUpdates = normalizePartialSettingsUpdate(updates)
   const changed: Record<string, unknown> = {}
 
-  await prisma.$transaction(async (tx) => {
-    for (const [key, value] of Object.entries(normalizedUpdates)) {
-      await tx.systemSetting.upsert({
-        where: { key },
-        update: { value: value as object, updatedBy: actor?.id },
-        create: { key, value: value as object, updatedBy: actor?.id },
-      })
-      changed[key] = value
-    }
+  const upserts = Object.entries(normalizedUpdates).map(([key, value]) => {
+    changed[key] = value
+
+    return prisma.systemSetting.upsert({
+      where: { key },
+      update: { value: value as object, updatedBy: actor?.id },
+      create: { key, value: value as object, updatedBy: actor?.id },
+    })
   })
+
+  if (upserts.length > 0) {
+    await prisma.$transaction(upserts)
+  }
 
   await logAuditEvent({
     actor,
