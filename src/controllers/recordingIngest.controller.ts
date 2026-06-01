@@ -18,6 +18,30 @@ const normalizeDigits = (value?: string | null) => {
   return String(value || '').replace(/\D/g, '')
 }
 
+const lastDigits = (value?: string | null, length = 10) => {
+  return normalizeDigits(value).slice(-length)
+}
+
+const numbersMatch = (candidate?: string | null, target?: string | null) => {
+  const candidateDigits = normalizeDigits(candidate)
+  const targetDigits = normalizeDigits(target)
+
+  if (!candidateDigits || !targetDigits) return false
+  if (candidateDigits.includes(targetDigits) || targetDigits.includes(candidateDigits)) return true
+
+  const candidateTail = lastDigits(candidateDigits)
+  const targetTail = lastDigits(targetDigits)
+
+  return Boolean(candidateTail && targetTail && candidateTail === targetTail)
+}
+
+const timeWindow = (centerTime: Date, windowMinutes: number) => {
+  return {
+    from: new Date(centerTime.getTime() - windowMinutes * 60 * 1000),
+    to: new Date(centerTime.getTime() + windowMinutes * 60 * 1000),
+  }
+}
+
 const requireIngestSecret = (req: Request) => {
   const expected = process.env.FREEPBX_INGEST_SECRET
   const provided = req.header('X-PTDT-Ingest-Secret')
@@ -70,6 +94,7 @@ const findCallForIngest = async (req: Request, recordingfile: string) => {
       select: {
         id: true,
         recordingUrl: true,
+        recordingSid: true,
         remoteNumber: true,
         source: true,
         disposition: true,
@@ -88,6 +113,36 @@ const findCallForIngest = async (req: Request, recordingfile: string) => {
     }
   }
 
+  const existingRecording = await prisma.call.findFirst({
+    where: {
+      source: 'sip',
+      recordingSid: recordingfile,
+      recordingUrl: { not: null },
+    },
+    orderBy: [
+      { updatedAt: 'desc' },
+      { id: 'desc' },
+    ],
+    select: {
+      id: true,
+      recordingUrl: true,
+      recordingSid: true,
+      remoteNumber: true,
+      source: true,
+      disposition: true,
+      providerCallId: true,
+      startedAt: true,
+      createdAt: true,
+    },
+  })
+
+  if (existingRecording) {
+    return {
+      call: existingRecording,
+      matchStrategy: 'recordingfile_existing_sid',
+    }
+  }
+
   const parsed = parseFreepbxRecordingFile(recordingfile)
   const bodyDst = normalizeDigits(req.body.dst)
   const bodySrc = normalizeDigits(req.body.src)
@@ -98,40 +153,78 @@ const findCallForIngest = async (req: Request, recordingfile: string) => {
   }
 
   const centerTime = parsed?.startedAt || new Date()
-  const windowMinutes = 10
-  const from = new Date(centerTime.getTime() - windowMinutes * 60 * 1000)
-  const to = new Date(centerTime.getTime() + windowMinutes * 60 * 1000)
+  const uniqueIdDigits = normalizeDigits(parsed?.uniqueid)
 
-  const candidates = await prisma.call.findMany({
-    where: {
-      source: 'sip',
-      recordingUrl: null,
-      startedAt: {
-        gte: from,
-        lte: to,
+  const select = {
+    id: true,
+    recordingUrl: true,
+    remoteNumber: true,
+    source: true,
+    disposition: true,
+    providerCallId: true,
+    recordingSid: true,
+    startedAt: true,
+    createdAt: true,
+  }
+
+  const findCandidate = async (
+    strategy: string,
+    windowMinutes: number,
+    options: { unrecordedOnly: boolean }
+  ) => {
+    const { from, to } = timeWindow(centerTime, windowMinutes)
+
+    const candidates = await prisma.call.findMany({
+      where: {
+        source: 'sip',
+        ...(options.unrecordedOnly ? { recordingUrl: null } : {}),
+        startedAt: {
+          gte: from,
+          lte: to,
+        },
       },
-      OR: [
-        { remoteNumber: { contains: targetNumber } },
-        { providerCallId: parsed?.uniqueid ? { contains: normalizeDigits(parsed.uniqueid) } : undefined },
-      ].filter(Boolean) as any,
-    },
-    orderBy: [
-      { createdAt: 'desc' },
-      { id: 'desc' },
-    ],
-    take: 5,
-    select: {
-      id: true,
-      recordingUrl: true,
-      remoteNumber: true,
-      source: true,
-      disposition: true,
-      startedAt: true,
-      createdAt: true,
-    },
-  })
+      orderBy: [
+        { startedAt: 'desc' },
+        { createdAt: 'desc' },
+        { id: 'desc' },
+      ],
+      take: 150,
+      select,
+    })
 
-  const call = candidates[0]
+    const matching = candidates
+      .filter((candidate) => {
+        const remoteMatches = numbersMatch(candidate.remoteNumber, targetNumber)
+        const providerMatches = Boolean(
+          uniqueIdDigits &&
+          normalizeDigits(candidate.providerCallId).includes(uniqueIdDigits)
+        )
+
+        return remoteMatches || providerMatches
+      })
+      .sort((a, b) => {
+        const aProviderMatch = uniqueIdDigits && normalizeDigits(a.providerCallId).includes(uniqueIdDigits)
+        const bProviderMatch = uniqueIdDigits && normalizeDigits(b.providerCallId).includes(uniqueIdDigits)
+
+        if (aProviderMatch && !bProviderMatch) return -1
+        if (!aProviderMatch && bProviderMatch) return 1
+
+        const aDiff = Math.abs(a.startedAt.getTime() - centerTime.getTime())
+        const bDiff = Math.abs(b.startedAt.getTime() - centerTime.getTime())
+
+        return aDiff - bDiff
+      })
+
+    const call = matching[0]
+    return call ? { call, matchStrategy: strategy } : null
+  }
+
+  const match =
+    (await findCandidate('recordingfile_exact_time_number', 15, { unrecordedOnly: true })) ||
+    (await findCandidate('recordingfile_near_time_number', 45, { unrecordedOnly: true })) ||
+    (await findCandidate('recordingfile_near_time_any_number', 45, { unrecordedOnly: false }))
+
+  const call = match?.call
 
   if (!call) {
     throw new AppError(
@@ -142,7 +235,7 @@ const findCallForIngest = async (req: Request, recordingfile: string) => {
 
   return {
     call,
-    matchStrategy: 'recordingfile_time_number',
+    matchStrategy: match.matchStrategy,
   }
 }
 
@@ -167,6 +260,29 @@ export const ingestFreepbxRecording = async (
     }
 
     const { call, matchStrategy } = await findCallForIngest(req, recordingfile)
+
+    if (call.recordingUrl && call.recordingSid === recordingfile) {
+      return sendSuccess(
+        res,
+        {
+          match: {
+            strategy: matchStrategy,
+            callId: call.id,
+            remoteNumber: call.remoteNumber,
+            startedAt: call.startedAt,
+          },
+          call: {
+            id: call.id,
+            recordingSid: call.recordingSid,
+            recordingUrlPreview: call.recordingUrl.slice(0, 120) + '...',
+          },
+          storage: {
+            alreadyIngested: true,
+          },
+        },
+        'FreePBX recording already ingested'
+      )
+    }
 
     const ext = getExtension(file.originalname || recordingfile)
     tempFilePath = path.join(
