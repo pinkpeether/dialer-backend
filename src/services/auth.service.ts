@@ -132,6 +132,24 @@ export const logoutUser = async (userId: number) => {
   })
 }
 
+export const changePassword = async (
+  userId: number,
+  currentPassword: string,
+  newPassword: string
+) => {
+  const user = await prisma.user.findUnique({ where: { id: userId } })
+  if (!user) throw new AppError('User not found', 404)
+
+  const isMatch = await bcrypt.compare(currentPassword, user.passwordHash)
+  if (!isMatch) throw new AppError('Current password is incorrect', 400)
+
+  const passwordHash = await bcrypt.hash(newPassword, 12)
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash },
+  })
+}
+
 export const seedAdmin = async () => {
   const existing = await prisma.user.findUnique({
     where: { email: process.env.ADMIN_EMAIL! },

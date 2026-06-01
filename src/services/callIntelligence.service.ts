@@ -32,13 +32,35 @@ export const getCallIntelligence = async (callId: number) => {
 
   if (!call) throw new AppError('Call not found', 404)
 
+  if (!call.recordingUrl) {
+    return {
+      call,
+      transcript: null,
+      summary: null,
+      sentiment: null,
+      status: 'RECORDING_NOT_AVAILABLE',
+      note: 'This call does not have an attached recording yet. Ingest or enable call recordings before running AI transcription.',
+    }
+  }
+
+  if (!isTranscriptionEnabled()) {
+    return {
+      call,
+      transcript: null,
+      summary: null,
+      sentiment: null,
+      status: 'TRANSCRIPTION_DISABLED',
+      note: 'Recording is available, but AI transcription is disabled. Set AI_TRANSCRIPTION_ENABLED=true to process recordings.',
+    }
+  }
+
   return {
     call,
     transcript: null,
     summary: null,
     sentiment: null,
-    status: 'PHASE_4_STORAGE_NOT_ENABLED',
-    note: 'Apply Phase 4 Prisma migration before enabling stored transcripts/summaries.',
+    status: 'READY_FOR_TRANSCRIPTION',
+    note: 'Recording is available. Use Queue Transcript to generate transcript output.',
   }
 }
 

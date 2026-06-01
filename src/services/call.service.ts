@@ -4,6 +4,7 @@ import { AppError } from '../middleware/errorHandler'
 import { applyDispositionRetry } from './retry.service'
 import { logAuditEvent } from './audit.service'
 import { AUDIT_ACTIONS } from '../constants/auditActions'
+import { emitToDashboard } from '../socket/socket.server'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,6 +64,32 @@ const ensureCanAccessCall = (
     403
   )
 }
+
+const emitDashboardEvent = (event: string, payload: unknown) => {
+  try {
+    emitToDashboard(event, payload)
+  } catch {
+    // Socket server may not be initialized in scripts/tests.
+  }
+}
+
+const toDashboardCallPayload = (call: {
+  id: number
+  agentId: number | null
+  remoteNumber?: string | null
+  duration?: number | null
+  status?: string | null
+  contact?: { name?: string | null; phone?: string | null } | null
+  agent?: { name?: string | null } | null
+}) => ({
+  callId: call.id,
+  agentId: call.agentId ?? 0,
+  agentName: call.agent?.name || 'Unknown agent',
+  phone: call.remoteNumber || call.contact?.phone || 'Unknown',
+  name: call.contact?.name || call.remoteNumber || 'Unknown',
+  duration: call.duration ?? undefined,
+  status: call.status || undefined,
+})
 
 const getOrCreateSystemCampaign = async () => {
   const existing = await prisma.campaign.findFirst({ where: { name: '__sip__' } })
@@ -126,6 +153,8 @@ export const createSipCallLog = async (input: SipCallLogInput, user?: CallAccess
       campaign: { select: { id: true, name: true } },
     },
   })
+
+  emitDashboardEvent('call:started', toDashboardCallPayload(call))
 
   return {
     ...call,
@@ -329,6 +358,7 @@ export const updateCallDisposition = async (
     metadata: { disposition, callbackAt },
   })
 
+  emitDashboardEvent('call:ended', toDashboardCallPayload(call))
   return call
 }
 
@@ -359,7 +389,7 @@ export const markCallEnded = async (
   const durationStart = existing.connectedAt ?? existing.startedAt
   const duration = existing.duration ?? Math.max(0, Math.round((endedAt.getTime() - durationStart.getTime()) / 1000))
 
-  return prisma.call.update({
+  const call = await prisma.call.update({
     where: { id },
     data: {
       status: 'COMPLETED',
@@ -372,6 +402,9 @@ export const markCallEnded = async (
       campaign: { select: { id: true, name: true } },
     },
   })
+
+  emitDashboardEvent('call:ended', toDashboardCallPayload(call))
+  return call
 }
 
 // ---------------------------------------------------------------------------

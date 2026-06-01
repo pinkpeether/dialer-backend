@@ -55,3 +55,20 @@ export const logout = async (
     return next(err)
   }
 }
+
+export const changePassword = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    await AuthService.changePassword(
+      req.user!.id,
+      req.body.currentPassword,
+      req.body.newPassword
+    )
+    return sendSuccess(res, null, 'Password changed successfully')
+  } catch (err) {
+    return next(err)
+  }
+}
