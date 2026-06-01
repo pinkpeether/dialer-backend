@@ -36,62 +36,85 @@ export const getMonitoringSummary = async () => {
   const next24h = new Date(Date.now() + 24 * 60 * 60 * 1000)
 
   const runtime = getRuntimeMetricsSnapshot()
-  const db = await checkDb()
 
-  // Sequential by design: safer with small Supabase/Railway pool configurations.
-  const agentRows = await prisma.user.groupBy({
-    by: ['status'],
-    where: { isActive: true },
-    _count: { _all: true },
-  })
-
-  const campaignRows = await prisma.campaign.groupBy({
-    by: ['status'],
-    _count: { _all: true },
-  })
-
-  const callStatusRows = await prisma.call.groupBy({
-    by: ['status'],
-    where: { startedAt: { gte: last24h } },
-    _count: { _all: true },
-  })
-
-  const callDispositionRows = await prisma.call.groupBy({
-    by: ['disposition'],
-    where: {
-      startedAt: { gte: last24h },
-      disposition: { not: null },
-    },
-    _count: { _all: true },
-  })
-
-  const overdueCallbacks = await prisma.callback.count({
-    where: {
-      status: { in: ['PENDING', 'RESCHEDULED'] },
-      scheduledAt: { lt: generatedAt },
-    },
-  })
-
-  const dueSoonCallbacks = await prisma.callback.count({
-    where: {
-      status: { in: ['PENDING', 'RESCHEDULED'] },
-      scheduledAt: { gte: generatedAt, lte: next24h },
-    },
-  })
-
-  const activeCampaigns = await prisma.campaign.findMany({
-    where: { status: 'ACTIVE' },
-    select: {
-      id: true,
-      name: true,
-      mode: true,
-      waitingReason: true,
-      lastSchedulerCheckAt: true,
-      updatedAt: true,
-    },
-    orderBy: { updatedAt: 'desc' },
-    take: 25,
-  })
+  // Keep this route under frontend timeout. Supabase pooler is configured with
+  // connection_limit=5 locally, so these independent reads can run in a small
+  // concurrent batch instead of serially adding multiple DB round-trips.
+  const [
+    db,
+    agentRows,
+    campaignRows,
+    callStatusRows,
+    callDispositionRows,
+    overdueCallbacks,
+    dueSoonCallbacks,
+    activeCampaigns,
+    recentCalls,
+  ] = await Promise.all([
+    checkDb(),
+    prisma.user.groupBy({
+      by: ['status'],
+      where: { isActive: true },
+      _count: { _all: true },
+    }),
+    prisma.campaign.groupBy({
+      by: ['status'],
+      _count: { _all: true },
+    }),
+    prisma.call.groupBy({
+      by: ['status'],
+      where: { startedAt: { gte: last24h } },
+      _count: { _all: true },
+    }),
+    prisma.call.groupBy({
+      by: ['disposition'],
+      where: {
+        startedAt: { gte: last24h },
+        disposition: { not: null },
+      },
+      _count: { _all: true },
+    }),
+    prisma.callback.count({
+      where: {
+        status: { in: ['PENDING', 'RESCHEDULED'] },
+        scheduledAt: { lt: generatedAt },
+      },
+    }),
+    prisma.callback.count({
+      where: {
+        status: { in: ['PENDING', 'RESCHEDULED'] },
+        scheduledAt: { gte: generatedAt, lte: next24h },
+      },
+    }),
+    prisma.campaign.findMany({
+      where: { status: 'ACTIVE' },
+      select: {
+        id: true,
+        name: true,
+        mode: true,
+        waitingReason: true,
+        lastSchedulerCheckAt: true,
+        updatedAt: true,
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 25,
+    }),
+    prisma.call.findMany({
+      where: { startedAt: { gte: last24h } },
+      select: {
+        id: true,
+        status: true,
+        disposition: true,
+        campaignId: true,
+        agentId: true,
+        duration: true,
+        startedAt: true,
+        endedAt: true,
+      },
+      orderBy: { startedAt: 'desc' },
+      take: 15,
+    }),
+  ])
 
   const activeCampaignIds = activeCampaigns.map(c => c.id)
 
@@ -102,22 +125,6 @@ export const getMonitoringSummary = async () => {
         _count: { _all: true },
       })
     : []
-
-  const recentCalls = await prisma.call.findMany({
-    where: { startedAt: { gte: last24h } },
-    select: {
-      id: true,
-      status: true,
-      disposition: true,
-      campaignId: true,
-      agentId: true,
-      duration: true,
-      startedAt: true,
-      endedAt: true,
-    },
-    orderBy: { startedAt: 'desc' },
-    take: 15,
-  })
 
   const contactsByCampaign = contactRows.reduce<Record<number, Record<string, number>>>((acc, row) => {
     if (row.campaignId === null) return acc
