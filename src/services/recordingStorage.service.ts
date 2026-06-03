@@ -78,6 +78,60 @@ export const buildRecordingStorageKey = (localFilePath: string, date = new Date(
   return `recordings/${year}/${month}/${day}/${fileName}`
 }
 
+export const extractRecordingStorageKeyFromUrl = (recordingUrl: string) => {
+  const bucket = getBucket()
+  const url = new URL(recordingUrl)
+  const pathname = decodeURIComponent(url.pathname)
+  const marker = `/${bucket}/`
+  const markerIndex = pathname.indexOf(marker)
+
+  if (markerIndex === -1) {
+    throw new Error('Recording URL does not contain the configured storage bucket.')
+  }
+
+  const key = pathname.slice(markerIndex + marker.length).replace(/^\/+/, '')
+
+  if (!key) {
+    throw new Error('Recording URL does not contain a storage object key.')
+  }
+
+  return key
+}
+
+export const createSignedRecordingUrlForKey = async (key: string) => {
+  const bucket = getBucket()
+  const client = getS3Client()
+
+  await client.send(
+    new HeadObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    })
+  )
+
+  const expiresInSeconds = getSignedUrlTtlSeconds()
+  const signedUrl = await getSignedUrl(
+    client,
+    new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    }),
+    { expiresIn: expiresInSeconds }
+  )
+
+  return {
+    bucket,
+    key,
+    signedUrl,
+    expiresInSeconds,
+  }
+}
+
+export const refreshSignedRecordingUrlFromStoredUrl = async (recordingUrl: string) => {
+  const key = extractRecordingStorageKeyFromUrl(recordingUrl)
+  return createSignedRecordingUrlForKey(key)
+}
+
 export const uploadRecordingAndCreateSignedUrl = async (
   input: UploadRecordingInput
 ): Promise<UploadRecordingResult> => {

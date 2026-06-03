@@ -159,6 +159,52 @@ model Call {
   campaign       Campaign         @relation(fields: [campaignId], references: [id])
   agent          User?            @relation(fields: [agentId], references: [id])
   callbacks      Callback[]
+  transcript     CallTranscript?
+  insight        CallInsight?
+}
+
+model CallTranscript {
+  id              Int       @id @default(autoincrement())
+  callId          Int       @unique
+  transcriptText  String    @db.Text
+  provider        String
+  model           String
+  language        String?
+  durationSeconds Int?
+  status          String    @default("COMPLETED")
+  errorMessage    String?   @db.Text
+  generatedAt     DateTime  @default(now())
+  deletedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  call            Call      @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([provider])
+  @@index([generatedAt])
+}
+
+model CallInsight {
+  id          Int       @id @default(autoincrement())
+  callId      Int       @unique
+  summary     String?   @db.Text
+  sentiment   String?
+  score       Float?
+  intent      String?
+  objections  Json?
+  actionItems Json?
+  provider    String?
+  model       String?
+  status      String    @default("PENDING")
+  generatedAt DateTime?
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  call        Call      @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+  @@index([sentiment])
+  @@index([status])
+  @@index([generatedAt])
 }
 
 model Callback {
