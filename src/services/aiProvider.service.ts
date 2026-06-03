@@ -26,6 +26,17 @@ export type SentimentResult = {
   provider: string
 }
 
+export type CallInsightAnalysisResult = {
+  summary: string
+  sentiment: 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE' | 'UNKNOWN'
+  score: number
+  intent: string
+  objections: string[]
+  actionItems: string[]
+  provider: string
+  model: string
+}
+
 const SUPPORTED_AUDIO_EXTENSIONS = new Set([
   '.mp3', '.mp4', '.mpeg', '.mpga', '.m4a', '.wav', '.webm',
 ])
@@ -182,12 +193,197 @@ export const transcribeRecording = async (recordingUrl: string): Promise<Transcr
   }
 }
 
-export const summarizeTranscript = async (_text: string): Promise<SummaryResult> => {
-  assertAiConfigured()
-  throw new Error('AI summary provider adapter not implemented yet.')
+const getInsightModel = (provider: string) => {
+  return process.env.AI_INSIGHT_MODEL ||
+    process.env.AI_SUMMARY_MODEL ||
+    (provider === 'openrouter' ? 'openai/gpt-4o-mini' : 'gpt-4o-mini')
 }
 
-export const scoreSentiment = async (_text: string): Promise<SentimentResult> => {
+const extractJsonObject = (raw: string) => {
+  const trimmed = raw.trim()
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+  const candidate = fenced?.[1]?.trim() || trimmed
+  const firstBrace = candidate.indexOf('{')
+  const lastBrace = candidate.lastIndexOf('}')
+
+  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+    throw new Error('AI insight response did not contain a JSON object.')
+  }
+
+  return candidate.slice(firstBrace, lastBrace + 1)
+}
+
+const normalizeSentiment = (value: unknown): CallInsightAnalysisResult['sentiment'] => {
+  const normalized = String(value || '').toUpperCase()
+  if (['POSITIVE', 'NEUTRAL', 'NEGATIVE', 'UNKNOWN'].includes(normalized)) {
+    return normalized as CallInsightAnalysisResult['sentiment']
+  }
+  return 'UNKNOWN'
+}
+
+const normalizeScore = (value: unknown) => {
+  const score = Number(value)
+  if (!Number.isFinite(score)) return 50
+  return Math.max(0, Math.min(100, Math.round(score)))
+}
+
+const normalizeStringArray = (value: unknown) => {
+  if (!Array.isArray(value)) return []
+  return value
+    .map(item => String(item || '').trim())
+    .filter(Boolean)
+    .slice(0, 8)
+}
+
+const parseInsightJson = (
+  raw: string,
+  provider: string,
+  model: string
+): CallInsightAnalysisResult => {
+  const parsed = JSON.parse(extractJsonObject(raw)) as {
+    summary?: unknown
+    sentiment?: unknown
+    score?: unknown
+    intent?: unknown
+    objections?: unknown
+    actionItems?: unknown
+  }
+
+  return {
+    summary: String(parsed.summary || 'No summary generated.').trim(),
+    sentiment: normalizeSentiment(parsed.sentiment),
+    score: normalizeScore(parsed.score),
+    intent: String(parsed.intent || 'UNKNOWN').trim(),
+    objections: normalizeStringArray(parsed.objections),
+    actionItems: normalizeStringArray(parsed.actionItems),
+    provider,
+    model,
+  }
+}
+
+const buildInsightPrompt = (text: string) => {
+  return [
+    'You are analyzing a call transcript for PTDT Dialer supervisors.',
+    'Return ONLY valid JSON. No markdown. No extra text.',
+    'Use this exact JSON shape:',
+    '{"summary":"2-4 sentence concise call summary","sentiment":"POSITIVE|NEUTRAL|NEGATIVE|UNKNOWN","score":0,"intent":"customer intent in a short phrase","objections":["short objection"],"actionItems":["short next action"]}',
+    'Score must be an integer from 0 to 100, where 100 means excellent sales/support outcome and 0 means very poor outcome.',
+    'If the transcript is too short or unclear, use UNKNOWN/NEUTRAL and explain briefly in summary.',
+    '',
+    'Transcript:',
+    text.slice(0, 12000),
+  ].join('\n')
+}
+
+const analyzeWithOpenRouter = async (
+  transcriptText: string,
+  model: string
+): Promise<CallInsightAnalysisResult> => {
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      'HTTP-Referer': process.env.OPENROUTER_SITE_URL || 'https://ptdt-dialer.local',
+      'X-OpenRouter-Title': process.env.OPENROUTER_SITE_NAME || 'PTDT Dialer',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        {
+          role: 'system',
+          content: 'You produce strict JSON call intelligence for a dialer CRM.',
+        },
+        {
+          role: 'user',
+          content: buildInsightPrompt(transcriptText),
+        },
+      ],
+      temperature: 0.2,
+      provider: {
+        allow_fallbacks: true,
+      },
+    }),
+  })
+
+  const raw = await response.text()
+
+  if (!response.ok) {
+    throw new Error(`OpenRouter insight generation failed. HTTP ${response.status}: ${raw}`)
+  }
+
+  const parsed = JSON.parse(raw) as {
+    choices?: Array<{
+      message?: {
+        content?: string
+      }
+    }>
+  }
+
+  const content = parsed.choices?.[0]?.message?.content || ''
+  return parseInsightJson(content, 'openrouter', model)
+}
+
+const analyzeWithOpenAI = async (
+  transcriptText: string,
+  model: string
+): Promise<CallInsightAnalysisResult> => {
+  const client = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  })
+
+  const response = await client.chat.completions.create({
+    model,
+    temperature: 0.2,
+    response_format: { type: 'json_object' },
+    messages: [
+      {
+        role: 'system',
+        content: 'You produce strict JSON call intelligence for a dialer CRM.',
+      },
+      {
+        role: 'user',
+        content: buildInsightPrompt(transcriptText),
+      },
+    ],
+  })
+
+  const content = response.choices[0]?.message?.content || ''
+  return parseInsightJson(content, 'openai', model)
+}
+
+export const analyzeTranscriptInsight = async (
+  transcriptText: string
+): Promise<CallInsightAnalysisResult> => {
   assertAiConfigured()
-  throw new Error('AI sentiment provider adapter not implemented yet.')
+
+  if (!transcriptText.trim()) {
+    throw new Error('Transcript is empty. Generate a transcript before creating call insight.')
+  }
+
+  const provider = getProvider()
+  const model = getInsightModel(provider)
+
+  if (provider === 'openrouter') {
+    return analyzeWithOpenRouter(transcriptText, model)
+  }
+
+  return analyzeWithOpenAI(transcriptText, model)
+}
+
+export const summarizeTranscript = async (text: string): Promise<SummaryResult> => {
+  const insight = await analyzeTranscriptInsight(text)
+  return {
+    summary: insight.summary,
+    provider: insight.provider,
+  }
+}
+
+export const scoreSentiment = async (text: string): Promise<SentimentResult> => {
+  const insight = await analyzeTranscriptInsight(text)
+  return {
+    sentiment: insight.sentiment,
+    score: insight.score,
+    provider: insight.provider,
+  }
 }

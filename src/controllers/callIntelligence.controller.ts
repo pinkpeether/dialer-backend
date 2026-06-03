@@ -20,3 +20,13 @@ export const createTranscript = async (req: AuthRequest, res: Response, next: Ne
     return next(err)
   }
 }
+
+
+export const createInsight = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const result = await CallIntelligenceService.createCallInsight(Number(req.params.callId))
+    return sendSuccess(res, result, 'Call insight generated')
+  } catch (err) {
+    return next(err)
+  }
+}

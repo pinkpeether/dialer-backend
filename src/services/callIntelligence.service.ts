@@ -1,6 +1,6 @@
 import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
-import { transcribeRecording } from './aiProvider.service'
+import { analyzeTranscriptInsight, transcribeRecording } from './aiProvider.service'
 import { refreshSignedRecordingUrlFromStoredUrl } from './recordingStorage.service'
 
 const isTranscriptionEnabled = () => {
@@ -193,11 +193,19 @@ export const getCallIntelligence = async (callId: number) => {
 
   if (!call) throw new AppError('Call not found', 404)
 
+  if (call.transcript && !call.transcript.deletedAt && call.insight && !call.insight.deletedAt) {
+    return buildCallIntelligenceResponse({
+      call,
+      status: 'INSIGHT_STORED',
+      note: 'Stored transcript and call insight are available for this call.',
+    })
+  }
+
   if (call.transcript && !call.transcript.deletedAt) {
     return buildCallIntelligenceResponse({
       call,
       status: 'TRANSCRIPT_STORED',
-      note: 'Stored transcript is available for this call.',
+      note: 'Stored transcript is available for this call. Use Generate Insight to create summary, sentiment, and scoring.',
     })
   }
 
@@ -309,3 +317,75 @@ export const createTranscriptionJob = async (callId: number) => {
     throw new AppError(message, 503)
   }
 }
+
+export const createCallInsight = async (callId: number) => {
+  const call = await prisma.call.findUnique({
+    where: { id: callId },
+    select: callSelect,
+  })
+
+  if (!call) throw new AppError('Call not found', 404)
+
+  if (!call.transcript || call.transcript.deletedAt) {
+    throw new AppError('Stored transcript is required before generating call insight.', 400)
+  }
+
+  if (call.insight && !call.insight.deletedAt) {
+    return buildCallIntelligenceResponse({
+      call,
+      status: 'INSIGHT_STORED',
+      note: 'Call insight already exists for this call. Returning stored insight without creating a duplicate.',
+    })
+  }
+
+  try {
+    const insight = await analyzeTranscriptInsight(call.transcript.transcriptText)
+
+    await prisma.callInsight.upsert({
+      where: { callId },
+      create: {
+        callId,
+        summary: insight.summary,
+        sentiment: insight.sentiment,
+        score: insight.score,
+        intent: insight.intent,
+        objections: insight.objections,
+        actionItems: insight.actionItems,
+        provider: insight.provider,
+        model: insight.model,
+        status: 'COMPLETED',
+        generatedAt: new Date(),
+      },
+      update: {
+        summary: insight.summary,
+        sentiment: insight.sentiment,
+        score: insight.score,
+        intent: insight.intent,
+        objections: insight.objections,
+        actionItems: insight.actionItems,
+        provider: insight.provider,
+        model: insight.model,
+        status: 'COMPLETED',
+        deletedAt: null,
+        generatedAt: new Date(),
+      },
+    })
+
+    const updatedCall = await prisma.call.findUnique({
+      where: { id: callId },
+      select: callSelect,
+    })
+
+    if (!updatedCall) throw new AppError('Call not found after insight save', 404)
+
+    return buildCallIntelligenceResponse({
+      call: updatedCall,
+      status: 'INSIGHT_COMPLETED',
+      note: 'Call insight generated and stored successfully.',
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Call insight generation failed'
+    throw new AppError(message, 503)
+  }
+}
+
