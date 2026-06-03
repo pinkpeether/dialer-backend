@@ -3,8 +3,29 @@ import { AppError } from '../middleware/errorHandler'
 import { analyzeTranscriptInsight, transcribeRecording } from './aiProvider.service'
 import { refreshSignedRecordingUrlFromStoredUrl } from './recordingStorage.service'
 
+const truthyValues = new Set(['true', '1', 'yes', 'on'])
+const falseyValues = new Set(['false', '0', 'no', 'off'])
+
+const isTruthyEnv = (value?: string) => {
+  return truthyValues.has(String(value || '').trim().toLowerCase())
+}
+
+const isFalseyEnv = (value?: string) => {
+  return falseyValues.has(String(value || '').trim().toLowerCase())
+}
+
 const isTranscriptionEnabled = () => {
-  return process.env.AI_TRANSCRIPTION_ENABLED === 'true'
+  return isTruthyEnv(process.env.AI_TRANSCRIPTION_ENABLED)
+}
+
+const isInsightEnabled = () => {
+  const value = process.env.AI_INSIGHTS_ENABLED ?? process.env.AI_INSIGHT_ENABLED
+
+  if (typeof value === 'undefined') {
+    return true
+  }
+
+  return !isFalseyEnv(value)
 }
 
 const getMaxTranscriptionSeconds = () => {
@@ -15,6 +36,84 @@ const getMaxTranscriptionSeconds = () => {
   }
 
   return minutes * 60
+}
+
+const getPositiveIntegerEnv = (keys: string[], fallback: number) => {
+  for (const key of keys) {
+    const raw = process.env[key]
+
+    if (typeof raw === 'undefined' || raw === '') {
+      continue
+    }
+
+    const value = Number(raw)
+
+    if (Number.isFinite(value) && value > 0) {
+      return Math.floor(value)
+    }
+  }
+
+  return fallback
+}
+
+const getDailyTranscriptLimit = () => {
+  return getPositiveIntegerEnv(
+    ['AI_MAX_TRANSCRIPTS_PER_DAY', 'AI_DAILY_TRANSCRIPTION_LIMIT'],
+    25
+  )
+}
+
+const getDailyInsightLimit = () => {
+  return getPositiveIntegerEnv(
+    ['AI_MAX_INSIGHTS_PER_DAY', 'AI_DAILY_INSIGHT_LIMIT'],
+    50
+  )
+}
+
+const getUtcDayStart = () => {
+  const start = new Date()
+  start.setUTCHours(0, 0, 0, 0)
+  return start
+}
+
+const assertDailyTranscriptLimitAvailable = async () => {
+  const limit = getDailyTranscriptLimit()
+  const generatedToday = await prisma.callTranscript.count({
+    where: {
+      deletedAt: null,
+      status: 'COMPLETED',
+      generatedAt: {
+        gte: getUtcDayStart(),
+      },
+    },
+  })
+
+  if (generatedToday >= limit) {
+    throw new AppError(
+      `Daily AI transcription limit reached (${generatedToday}/${limit}). Increase AI_MAX_TRANSCRIPTS_PER_DAY or try again tomorrow.`,
+      429
+    )
+  }
+}
+
+const assertDailyInsightLimitAvailable = async () => {
+  const limit = getDailyInsightLimit()
+  const generatedToday = await prisma.callInsight.count({
+    where: {
+      deletedAt: null,
+      status: 'COMPLETED',
+      generatedAt: {
+        gte: getUtcDayStart(),
+      },
+    },
+  })
+
+  if (generatedToday >= limit) {
+    throw new AppError(
+      `Daily AI insight limit reached (${generatedToday}/${limit}). Increase AI_MAX_INSIGHTS_PER_DAY or try again tomorrow.`,
+      429
+    )
+  }
 }
 
 type StoredTranscript = {
@@ -180,6 +279,13 @@ const buildCallIntelligenceResponse = ({
     summary: insight?.summary ?? null,
     sentiment: insight?.sentiment ?? null,
     insight,
+    aiControls: {
+      transcriptionEnabled: isTranscriptionEnabled(),
+      insightsEnabled: isInsightEnabled(),
+      maxTranscriptionMinutes: Math.round(getMaxTranscriptionSeconds() / 60),
+      maxTranscriptsPerDay: getDailyTranscriptLimit(),
+      maxInsightsPerDay: getDailyInsightLimit(),
+    },
     status,
     note,
   }
@@ -202,6 +308,14 @@ export const getCallIntelligence = async (callId: number) => {
   }
 
   if (call.transcript && !call.transcript.deletedAt) {
+    if (!isInsightEnabled()) {
+      return buildCallIntelligenceResponse({
+        call,
+        status: 'INSIGHT_DISABLED',
+        note: 'Stored transcript is available, but AI insight generation is disabled. Set AI_INSIGHTS_ENABLED=true to enable summaries, sentiment, and scoring.',
+      })
+    }
+
     return buildCallIntelligenceResponse({
       call,
       status: 'TRANSCRIPT_STORED',
@@ -266,6 +380,8 @@ export const createTranscriptionJob = async (callId: number) => {
     )
   }
 
+  await assertDailyTranscriptLimitAvailable()
+
   try {
     const refreshedRecording = await refreshSignedRecordingUrlFromStoredUrl(call.recordingUrl)
     const transcription = await transcribeRecording(refreshedRecording.signedUrl)
@@ -274,6 +390,7 @@ export const createTranscriptionJob = async (callId: number) => {
       where: { id: callId },
       data: { recordingUrl: refreshedRecording.signedUrl },
     })
+
     const transcriptProvider = transcription.provider || process.env.AI_PROVIDER || 'unknown'
     const transcriptModel = transcription.model || process.env.AI_TRANSCRIPTION_MODEL || 'unknown'
 
@@ -338,6 +455,16 @@ export const createCallInsight = async (callId: number) => {
     })
   }
 
+  if (!isInsightEnabled()) {
+    return buildCallIntelligenceResponse({
+      call,
+      status: 'INSIGHT_DISABLED',
+      note: 'AI insight generation is disabled. Set AI_INSIGHTS_ENABLED=true to enable summaries, sentiment, and scoring.',
+    })
+  }
+
+  await assertDailyInsightLimitAvailable()
+
   try {
     const insight = await analyzeTranscriptInsight(call.transcript.transcriptText)
 
@@ -388,4 +515,3 @@ export const createCallInsight = async (callId: number) => {
     throw new AppError(message, 503)
   }
 }
-
