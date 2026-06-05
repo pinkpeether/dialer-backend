@@ -26,6 +26,7 @@ import supportDiagnosticsRoutes from './routes/supportDiagnostics.routes'
 import spoofingRoutes from './routes/spoofing.routes'
 import callIntelligenceRoutes from './routes/callIntelligence.routes'
 import advancedDialingRoutes from './routes/advancedDialing.routes'
+import callControlRoutes from './routes/callControl.routes'
 import { requestMetricsMiddleware } from './middleware/requestMetrics.middleware'
 
 import './services/dialerScheduler'
@@ -97,6 +98,7 @@ app.use('/api/support/diagnostics', supportDiagnosticsRoutes)
 app.use('/api/spoofing', spoofingRoutes)
 app.use('/api/call-intelligence', callIntelligenceRoutes)
 app.use('/api/advanced-dialing', advancedDialingRoutes)
+app.use('/api/call-controls', callControlRoutes)
 
 
 app.use((_req, _res, next) => {
