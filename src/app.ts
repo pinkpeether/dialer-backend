@@ -37,6 +37,7 @@ import liveAiRoutes from './routes/liveAi.routes'
 import liveMonitoringAdvancedRoutes from './routes/liveMonitoringAdvanced.routes'
 import uiUxProRoutes from './routes/uiUxPro.routes'
 import securityAdminProRoutes from './routes/securityAdminPro.routes'
+import deploymentPlatformProRoutes from './routes/deploymentPlatformPro.routes'
 import { requestMetricsMiddleware } from './middleware/requestMetrics.middleware'
 
 import './services/dialerScheduler'
@@ -119,6 +120,7 @@ app.use('/api/reports-analytics-pro', reportsAnalyticsProRoutes)
 app.use('/api/notifications-alerts-pro', notificationsAlertsProRoutes)
 app.use('/api/ui-ux-pro', uiUxProRoutes)
 app.use('/api/security-admin-pro', securityAdminProRoutes)
+app.use('/api/deployment-platform-pro', deploymentPlatformProRoutes)
 
 app.use((_req, _res, next) => {
   next(new AppError('Route not found', 404))
