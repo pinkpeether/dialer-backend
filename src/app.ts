@@ -26,12 +26,13 @@ import supportDiagnosticsRoutes from './routes/supportDiagnostics.routes'
 import spoofingRoutes from './routes/spoofing.routes'
 import callIntelligenceRoutes from './routes/callIntelligence.routes'
 import advancedDialingRoutes from './routes/advancedDialing.routes'
+import contactManagementProRoutes from './routes/contactManagementPro.routes'
 import campaignManagementProRoutes from './routes/campaignManagementPro.routes'
 import agentManagementRoutes from './routes/agentManagement.routes'
 import callControlRoutes from './routes/callControl.routes'
 import liveAiRoutes from './routes/liveAi.routes'
 import liveMonitoringAdvancedRoutes from './routes/liveMonitoringAdvanced.routes'
-import campaignManagementProRoutes from './routes/campaignManagementPro.routes'
+import contactManagementProRoutes from './routes/contactManagementPro.routes'
 import { requestMetricsMiddleware } from './middleware/requestMetrics.middleware'
 
 import './services/dialerScheduler'
@@ -103,16 +104,13 @@ app.use('/api/support/diagnostics', supportDiagnosticsRoutes)
 app.use('/api/spoofing', spoofingRoutes)
 app.use('/api/call-intelligence', callIntelligenceRoutes)
 app.use('/api/advanced-dialing', advancedDialingRoutes)
+app.use('/api/contact-management-pro', contactManagementProRoutes)
 app.use('/api/call-controls', callControlRoutes)
 app.use('/api/live-ai', liveAiRoutes)
 app.use('/api/agent-management', agentManagementRoutes)
 app.use('/api/live-monitoring-advanced', liveMonitoringAdvancedRoutes)
 app.use('/api/campaign-management-pro', campaignManagementProRoutes)
-app.use('/api/call-controls', callControlRoutes)
-app.use('/api/live-ai', liveAiRoutes)
-app.use('/api/agent-management', agentManagementRoutes)
-app.use('/api/live-monitoring-advanced', liveMonitoringAdvancedRoutes)
-app.use('/api/campaign-management-pro', campaignManagementProRoutes)
+app.use('/api/contact-management-pro', contactManagementProRoutes)
 
 app.use((_req, _res, next) => {
   next(new AppError('Route not found', 404))
