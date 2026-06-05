@@ -26,6 +26,7 @@ import supportDiagnosticsRoutes from './routes/supportDiagnostics.routes'
 import spoofingRoutes from './routes/spoofing.routes'
 import callIntelligenceRoutes from './routes/callIntelligence.routes'
 import advancedDialingRoutes from './routes/advancedDialing.routes'
+import notificationsAlertsProRoutes from './routes/notificationsAlertsPro.routes'
 import reportsAnalyticsProRoutes from './routes/reportsAnalyticsPro.routes'
 import recordingStorageProRoutes from './routes/recordingStoragePro.routes'
 import contactManagementProRoutes from './routes/contactManagementPro.routes'
@@ -113,7 +114,7 @@ app.use('/api/agent-management', agentManagementRoutes)
 app.use('/api/live-monitoring-advanced', liveMonitoringAdvancedRoutes)
 app.use('/api/campaign-management-pro', campaignManagementProRoutes)
 app.use('/api/reports-analytics-pro', reportsAnalyticsProRoutes)
-app.use('/api/reports-analytics-pro', reportsAnalyticsProRoutes)
+app.use('/api/notifications-alerts-pro', notificationsAlertsProRoutes)
 
 app.use((_req, _res, next) => {
   next(new AppError('Route not found', 404))
