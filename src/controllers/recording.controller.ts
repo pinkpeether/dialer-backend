@@ -1,6 +1,8 @@
 import { Response, NextFunction } from 'express'
+import { Readable } from 'stream'
 import { AuthRequest } from '../middleware/auth'
 import { sendSuccess } from '../utils/response'
+import { AppError } from '../middleware/errorHandler'
 import * as RecordingService from '../services/recording.service'
 
 const getDate = (value: unknown): Date | undefined => {
@@ -72,8 +74,33 @@ export const stream = async (req: AuthRequest, res: Response, next: NextFunction
       String(req.query.token || '')
     )
 
+    const upstream = await fetch(redirectUrl, {
+      headers: req.headers.range ? { Range: String(req.headers.range) } : undefined,
+    })
+
+    if (!upstream.ok && upstream.status !== 206) {
+      throw new AppError(`Recording storage returned ${upstream.status}`, 502)
+    }
+
     res.setHeader('Cache-Control', 'private, no-store, max-age=0')
-    return res.redirect(302, redirectUrl)
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin')
+    res.setHeader('Content-Type', upstream.headers.get('content-type') || 'audio/wav')
+
+    const contentLength = upstream.headers.get('content-length')
+    const contentRange = upstream.headers.get('content-range')
+    const acceptRanges = upstream.headers.get('accept-ranges')
+
+    if (contentLength) res.setHeader('Content-Length', contentLength)
+    if (contentRange) res.setHeader('Content-Range', contentRange)
+    res.setHeader('Accept-Ranges', acceptRanges || 'bytes')
+
+    res.status(upstream.status === 206 ? 206 : 200)
+
+    if (!upstream.body) {
+      throw new AppError('Recording storage returned an empty body', 502)
+    }
+
+    return Readable.fromWeb(upstream.body as any).pipe(res)
   } catch (err) {
     return next(err)
   }

@@ -300,7 +300,7 @@ export const ingestFreepbxRecording = async (
       contentType: file.mimetype || 'audio/wav',
     })
 
-    const recordingSid = String(req.body.uniqueid || req.body.linkedid || req.body.recordingfile || '')
+    const recordingSid = recordingfile
 
     const updated = await prisma.call.update({
       where: { id: call.id },

@@ -2,6 +2,7 @@ import crypto from 'crypto'
 import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import { logAuditEvent } from './audit.service'
+import { refreshSignedRecordingUrlFromStoredUrl } from './recordingStorage.service'
 
 type Actor = { id: number; email?: string; role?: string } | undefined
 
@@ -260,6 +261,22 @@ export const getRecordingPlaybackRedirect = async (callId: number, token: string
       tokenExpiresAt: new Date(payload.exp * 1000).toISOString(),
     },
   })
+
+  const provider = detectProvider(call.recordingUrl)
+
+  if (provider === 'supabase' || provider === 's3') {
+    try {
+      const refreshed = await refreshSignedRecordingUrlFromStoredUrl(call.recordingUrl as string)
+      return refreshed.signedUrl
+    } catch (err) {
+      throw new AppError(
+        err instanceof Error
+          ? `Recording storage object is not accessible: ${err.message}`
+          : 'Recording storage object is not accessible',
+        404
+      )
+    }
+  }
 
   return call.recordingUrl as string
 }
