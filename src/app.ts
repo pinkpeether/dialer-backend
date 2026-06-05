@@ -27,6 +27,9 @@ import spoofingRoutes from './routes/spoofing.routes'
 import callIntelligenceRoutes from './routes/callIntelligence.routes'
 import advancedDialingRoutes from './routes/advancedDialing.routes'
 import callControlRoutes from './routes/callControl.routes'
+import liveAiRoutes from './routes/liveAi.routes'
+import callControlRoutes from './routes/callControl.routes'
+import liveAiRoutes from './routes/liveAi.routes'
 import { requestMetricsMiddleware } from './middleware/requestMetrics.middleware'
 
 import './services/dialerScheduler'
@@ -99,7 +102,9 @@ app.use('/api/spoofing', spoofingRoutes)
 app.use('/api/call-intelligence', callIntelligenceRoutes)
 app.use('/api/advanced-dialing', advancedDialingRoutes)
 app.use('/api/call-controls', callControlRoutes)
-
+app.use('/api/live-ai', liveAiRoutes)
+app.use('/api/call-controls', callControlRoutes)
+app.use('/api/live-ai', liveAiRoutes)
 
 app.use((_req, _res, next) => {
   next(new AppError('Route not found', 404))
