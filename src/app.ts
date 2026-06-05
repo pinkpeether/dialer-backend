@@ -36,16 +36,7 @@ import callControlRoutes from './routes/callControl.routes'
 import liveAiRoutes from './routes/liveAi.routes'
 import liveMonitoringAdvancedRoutes from './routes/liveMonitoringAdvanced.routes'
 import uiUxProRoutes from './routes/uiUxPro.routes'
-import notificationsAlertsProRoutes from './routes/notificationsAlertsPro.routes'
-import reportsAnalyticsProRoutes from './routes/reportsAnalyticsPro.routes'
-import recordingStorageProRoutes from './routes/recordingStoragePro.routes'
-import contactManagementProRoutes from './routes/contactManagementPro.routes'
-import campaignManagementProRoutes from './routes/campaignManagementPro.routes'
-import agentManagementRoutes from './routes/agentManagement.routes'
-import callControlRoutes from './routes/callControl.routes'
-import liveAiRoutes from './routes/liveAi.routes'
-import liveMonitoringAdvancedRoutes from './routes/liveMonitoringAdvanced.routes'
-import uiUxProRoutes from './routes/uiUxPro.routes'
+import securityAdminProRoutes from './routes/securityAdminPro.routes'
 import { requestMetricsMiddleware } from './middleware/requestMetrics.middleware'
 
 import './services/dialerScheduler'
@@ -127,16 +118,7 @@ app.use('/api/campaign-management-pro', campaignManagementProRoutes)
 app.use('/api/reports-analytics-pro', reportsAnalyticsProRoutes)
 app.use('/api/notifications-alerts-pro', notificationsAlertsProRoutes)
 app.use('/api/ui-ux-pro', uiUxProRoutes)
-app.use('/api/recording-storage-pro', recordingStorageProRoutes)
-app.use('/api/contact-management-pro', contactManagementProRoutes)
-app.use('/api/call-controls', callControlRoutes)
-app.use('/api/live-ai', liveAiRoutes)
-app.use('/api/agent-management', agentManagementRoutes)
-app.use('/api/live-monitoring-advanced', liveMonitoringAdvancedRoutes)
-app.use('/api/campaign-management-pro', campaignManagementProRoutes)
-app.use('/api/reports-analytics-pro', reportsAnalyticsProRoutes)
-app.use('/api/notifications-alerts-pro', notificationsAlertsProRoutes)
-app.use('/api/ui-ux-pro', uiUxProRoutes)
+app.use('/api/security-admin-pro', securityAdminProRoutes)
 
 app.use((_req, _res, next) => {
   next(new AppError('Route not found', 404))
