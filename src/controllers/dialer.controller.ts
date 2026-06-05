@@ -1,44 +1,47 @@
 import { Request, Response, NextFunction } from 'express'
-import * as DialerService   from '../services/dialer.service'
-import * as TwilioService   from '../services/twilio.service'
+import * as DialerService from '../services/dialer.service'
+import * as TwilioService from '../services/twilio.service'
 import * as PreviewDialingService from '../services/previewDialing.service'
 import { sendSuccess, sendError } from '../utils/response'
-import { AuthRequest }      from '../middleware/auth'
-import logger               from '../utils/logger'
+import { AuthRequest } from '../middleware/auth'
+import logger from '../utils/logger'
 
-// Start campaign dialing
-export const startCampaign = async (
-  req: AuthRequest, res: Response, next: NextFunction
-) => {
+export const startCampaign = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     await DialerService.startCampaign(Number(req.params.campaignId))
     return sendSuccess(res, null, 'Campaign dialing started')
   } catch (err) { return next(err) }
 }
 
-// Stop campaign dialing
-export const stopCampaign = async (
-  req: AuthRequest, res: Response, next: NextFunction
-) => {
+export const stopCampaign = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     await DialerService.stopCampaign(Number(req.params.campaignId))
     return sendSuccess(res, null, 'Campaign dialing stopped')
   } catch (err) { return next(err) }
 }
 
-// Get active campaigns
-export const getActiveCampaigns = async (
-  req: AuthRequest, res: Response, next: NextFunction
-) => {
+export const getActiveCampaigns = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const campaigns = DialerService.getActiveCampaigns()
     return sendSuccess(res, { activeCampaigns: campaigns }, 'Active campaigns fetched')
   } catch (err) { return next(err) }
 }
 
-export const getNextPreviewContact = async (
-  req: AuthRequest, res: Response, next: NextFunction
-) => {
+export const getCampaignEngineStatus = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const result = await DialerService.getCampaignEngineStatus(Number(req.params.campaignId))
+    return sendSuccess(res, result, 'Campaign engine status fetched')
+  } catch (err) { return next(err) }
+}
+
+export const runCampaignEngineTick = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const result = await DialerService.runCampaignEngineTick(Number(req.params.campaignId))
+    return sendSuccess(res, result, 'Campaign engine tick completed')
+  } catch (err) { return next(err) }
+}
+
+export const getNextPreviewContact = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const result = await PreviewDialingService.getNextPreviewContact(
       Number(req.params.campaignId),
@@ -48,9 +51,7 @@ export const getNextPreviewContact = async (
   } catch (err) { return next(err) }
 }
 
-export const releasePreviewContact = async (
-  req: AuthRequest, res: Response, next: NextFunction
-) => {
+export const releasePreviewContact = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const result = await PreviewDialingService.releasePreviewContact(
       Number(req.params.contactId),
@@ -60,9 +61,7 @@ export const releasePreviewContact = async (
   } catch (err) { return next(err) }
 }
 
-export const callPreviewContact = async (
-  req: AuthRequest, res: Response, next: NextFunction
-) => {
+export const callPreviewContact = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const result = await PreviewDialingService.callPreviewContact(
       Number(req.params.contactId),
@@ -73,48 +72,33 @@ export const callPreviewContact = async (
   } catch (err) { return next(err) }
 }
 
-// Generate Twilio access token for agent softphone
-export const getAccessToken = async (
-  req: AuthRequest, res: Response, next: NextFunction
-) => {
+export const getAccessToken = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const token = TwilioService.generateAccessToken(
-      req.user!.id,
-      req.user!.email
-    )
+    const token = TwilioService.generateAccessToken(req.user!.id, req.user!.email)
     return sendSuccess(res, { token }, 'Access token generated')
   } catch (err) { return next(err) }
 }
 
-// TwiML — connect customer to agent
-export const twimlConnect = async (
-  req: Request, res: Response, next: NextFunction
-) => {
+export const twimlConnect = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const callId  = Number(req.params.callId)
+    const callId = Number(req.params.callId)
     const agentId = await DialerService.routeCallToAgent(callId)
-    const twiml   = TwilioService.generateConnectTwiML(callId, agentId || undefined)
+    const twiml = TwilioService.generateConnectTwiML(callId, agentId || undefined)
     res.type('text/xml')
     return res.send(twiml)
   } catch (err) { return next(err) }
 }
 
-// TwiML — agent browser softphone
-export const twimlAgent = async (
-  req: Request, res: Response, next: NextFunction
-) => {
+export const twimlAgent = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const agentId = Number(req.params.agentId)
-    const twiml   = TwilioService.generateAgentTwiML(agentId)
+    const twiml = TwilioService.generateAgentTwiML(agentId)
     res.type('text/xml')
     return res.send(twiml)
   } catch (err) { return next(err) }
 }
 
-// Webhook — call status update
-export const webhookStatus = async (
-  req: Request, res: Response, next: NextFunction
-) => {
+export const webhookStatus = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const callId = Number(req.params.callId)
     await TwilioService.handleStatusWebhook(callId, req.body)
@@ -125,10 +109,7 @@ export const webhookStatus = async (
   }
 }
 
-// Webhook — recording available
-export const webhookRecording = async (
-  req: Request, res: Response, next: NextFunction
-) => {
+export const webhookRecording = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const callId = Number(req.params.callId)
     await TwilioService.handleRecordingWebhook(callId, req.body)
@@ -139,10 +120,7 @@ export const webhookRecording = async (
   }
 }
 
-// Webhook — AMD (voicemail detection)
-export const webhookAMD = async (
-  req: Request, res: Response, next: NextFunction
-) => {
+export const webhookAMD = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const callId = Number(req.params.callId)
     await TwilioService.handleAMDWebhook(callId, req.body)
@@ -153,44 +131,25 @@ export const webhookAMD = async (
   }
 }
 
-// Manual call (campaign-based, contactId + campaignId required)
-export const makeManualCall = async (
-  req: AuthRequest, res: Response, next: NextFunction
-) => {
+export const makeManualCall = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { contactId, campaignId } = req.body
-    if (!contactId || !campaignId) {
-      return sendError(res, 'contactId and campaignId required', 400)
-    }
-    const result = await TwilioService.initiateCall(
-      Number(contactId),
-      Number(campaignId),
-      req.user!.id
-    )
+    if (!contactId || !campaignId) return sendError(res, 'contactId and campaignId required', 400)
+    const result = await TwilioService.initiateCall(Number(contactId), Number(campaignId), req.user!.id)
     return sendSuccess(res, result, 'Call initiated')
   } catch (err) { return next(err) }
 }
 
-// Ad-hoc call — direct phone number, no contact/campaign needed
-export const makeAdhocCall = async (
-  req: AuthRequest, res: Response, next: NextFunction
-) => {
+export const makeAdhocCall = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { phone, note } = req.body
     if (!phone) return sendError(res, 'phone number required', 400)
-    const result = await TwilioService.initiateAdhocCall(
-      String(phone).trim(),
-      req.user!.id,
-      note ? String(note) : undefined
-    )
+    const result = await TwilioService.initiateAdhocCall(String(phone).trim(), req.user!.id, note ? String(note) : undefined)
     return sendSuccess(res, result, 'Ad-hoc call initiated')
   } catch (err) { return next(err) }
 }
 
-// Send DTMF digits to active call
-export const sendDTMF = async (
-  req: AuthRequest, res: Response, next: NextFunction
-) => {
+export const sendDTMF = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { twilioCallSid, digits } = req.body
     if (!twilioCallSid || !digits) return sendError(res, 'twilioCallSid and digits required', 400)
@@ -199,10 +158,7 @@ export const sendDTMF = async (
   } catch (err) { return next(err) }
 }
 
-// Hangup call
-export const hangupCall = async (
-  req: AuthRequest, res: Response, next: NextFunction
-) => {
+export const hangupCall = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { twilioCallSid } = req.body
     if (!twilioCallSid) return sendError(res, 'twilioCallSid required', 400)
