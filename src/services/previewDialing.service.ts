@@ -1,7 +1,7 @@
 import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import { normalizeDialingMode, DIALING_MODES } from '../constants/dialingModes'
-import * as TwilioService from './twilio.service'
+import * as ProviderCallService from './providerCall.service'
 
 const previewEligibleWhere = (campaignId: number) => {
   const now = new Date()
@@ -60,5 +60,5 @@ export const callPreviewContact = async (contactId: number, campaignId: number, 
     throw new AppError(`Contact is not callable from preview state: ${contact.status}`, 400)
   }
 
-  return TwilioService.initiateCall(contactId, campaignId, agentId)
+  return ProviderCallService.initiateCall(contactId, campaignId, agentId)
 }

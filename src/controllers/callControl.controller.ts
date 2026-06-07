@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express'
+import { Response, NextFunction } from 'express'
 import { AuthRequest } from '../middleware/auth'
 import { sendSuccess } from '../utils/response'
 import * as CallControlService from '../services/callControl.service'
@@ -35,18 +35,6 @@ export const runAction = async (req: AuthRequest, res: Response, next: NextFunct
     })
 
     return sendSuccess(res, result, 'Call-control action processed')
-  } catch (err) {
-    return next(err)
-  }
-}
-
-export const supervisorJoinTwiml = async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const room = String(req.query.room || req.body?.room || '')
-    const mode = String(req.query.mode || req.body?.mode || 'whisper')
-    const twiml = CallControlService.generateSupervisorJoinTwiml(room, mode)
-    res.type('text/xml')
-    return res.send(twiml)
   } catch (err) {
     return next(err)
   }

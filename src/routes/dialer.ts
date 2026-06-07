@@ -4,7 +4,6 @@ import { authenticate, authorize } from '../middleware/auth'
 
 const router = Router()
 
-router.use('/token', authenticate)
 router.use('/start', authenticate)
 router.use('/stop', authenticate)
 router.use('/active', authenticate)
@@ -15,7 +14,6 @@ router.use('/call/hangup', authenticate)
 router.use('/call/dtmf', authenticate)
 router.use('/preview', authenticate)
 
-router.get('/token', DialerController.getAccessToken)
 
 router.post('/start/:campaignId', authorize('ADMIN', 'SUPERVISOR'), DialerController.startCampaign)
 router.post('/stop/:campaignId', authorize('ADMIN', 'SUPERVISOR'), DialerController.stopCampaign)
@@ -33,10 +31,5 @@ router.post('/call/adhoc', DialerController.makeAdhocCall)
 router.post('/call/dtmf', DialerController.sendDTMF)
 router.post('/call/hangup', DialerController.hangupCall)
 
-router.post('/twiml/connect/:callId', DialerController.twimlConnect)
-router.post('/twiml/agent/:agentId', DialerController.twimlAgent)
-router.post('/webhook/status/:callId', DialerController.webhookStatus)
-router.post('/webhook/recording/:callId', DialerController.webhookRecording)
-router.post('/webhook/amd/:callId', DialerController.webhookAMD)
 
 export default router

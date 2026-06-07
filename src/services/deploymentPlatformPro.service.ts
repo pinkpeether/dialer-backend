@@ -179,22 +179,22 @@ export const getDeploymentPlatformOverview = () => {
         makeItem(
           'sip-provider',
           'SIP trunk provider',
-          hasAny('SIP_TRUNK_PROVIDER', 'CALL_PROVIDER', 'TWILIO_ACCOUNT_SID') ? 'CONFIGURED' : 'MISSING',
-          hasAny('SIP_TRUNK_PROVIDER', 'CALL_PROVIDER', 'TWILIO_ACCOUNT_SID') ? 'Provider-related variables detected.' : 'No SIP trunk provider variable detected.',
+          hasAny('SIP_TRUNK_PROVIDER', 'CALL_PROVIDER', 'SIP_TRUNK_ACCOUNT_ID') ? 'CONFIGURED' : 'MISSING',
+          hasAny('SIP_TRUNK_PROVIDER', 'CALL_PROVIDER', 'SIP_TRUNK_ACCOUNT_ID') ? 'Provider-related variables detected.' : 'No SIP trunk provider variable detected.',
           'Configure SIP trunk/provider account on PBX and backend provider metadata.'
         ),
         makeItem(
           'calling-credit',
           'Calling credit / prepaid balance',
-          present(process.env.SIP_TRUNK_BALANCE_READY) || present(process.env.TWILIO_ACCOUNT_SID) ? 'CONFIGURED' : 'WARNING',
+          present(process.env.SIP_TRUNK_BALANCE_READY) || present(process.env.SIP_TRUNK_ACCOUNT_ID) ? 'CONFIGURED' : 'WARNING',
           present(process.env.SIP_TRUNK_BALANCE_READY) ? 'Calling credit marked ready.' : 'Calling credit readiness flag not set.',
           'Top up SIP trunk balance before client pilot calls.'
         ),
         makeItem(
           'caller-id',
           'Verified caller ID / DID',
-          present(process.env.DEFAULT_OUTBOUND_CALLER_ID) || present(process.env.TWILIO_PHONE_NUMBER) ? 'CONFIGURED' : 'WARNING',
-          present(process.env.DEFAULT_OUTBOUND_CALLER_ID) || present(process.env.TWILIO_PHONE_NUMBER) ? 'Caller ID variable detected.' : 'No default outbound caller ID detected.',
+          present(process.env.DEFAULT_OUTBOUND_CALLER_ID) || present(process.env.DEFAULT_OUTBOUND_CALLER_ID) ? 'CONFIGURED' : 'WARNING',
+          present(process.env.DEFAULT_OUTBOUND_CALLER_ID) || present(process.env.DEFAULT_OUTBOUND_CALLER_ID) ? 'Caller ID variable detected.' : 'No default outbound caller ID detected.',
           'Verify at least one DID/CLI and test outbound route.'
         ),
       ],

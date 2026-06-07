@@ -277,23 +277,22 @@ export const securityAdminProService = {
 
   async getBillingOverview() {
     const provider = process.env.CALL_PROVIDER || 'not-set'
-    const twilioConfigured = Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN)
+    const providerConfigured = Boolean(process.env.SIP_TRUNK_ACCOUNT_ID && process.env.SIP_TRUNK_API_SECRET)
     const openRouterConfigured = Boolean(process.env.OPENROUTER_API_KEY)
     const openAiConfigured = Boolean(process.env.OPENAI_API_KEY)
 
     return {
-      provider,
       sipTrunk: {
         provider: process.env.SIP_TRUNK_PROVIDER || provider,
         accountId: maskSecret(process.env.SIP_TRUNK_ACCOUNT_ID),
         balanceUsd: process.env.SIP_TRUNK_BALANCE_USD || null,
         lowBalanceThresholdUsd: process.env.SIP_TRUNK_LOW_BALANCE_USD || '10',
       },
-      twilio: {
-        configured: twilioConfigured,
-        accountSid: maskSecret(process.env.TWILIO_ACCOUNT_SID),
-        fromNumberConfigured: Boolean(process.env.TWILIO_PHONE_NUMBER),
-        estimatedBalanceUsd: process.env.TWILIO_BALANCE_USD || null,
+      provider: {
+        configured: providerConfigured,
+        accountSid: maskSecret(process.env.SIP_TRUNK_ACCOUNT_ID),
+        fromNumberConfigured: Boolean(process.env.DEFAULT_OUTBOUND_CALLER_ID),
+        estimatedBalanceUsd: process.env.SIP_TRUNK_BALANCE_USD || null,
       },
       ai: {
         openRouterConfigured,
@@ -332,7 +331,6 @@ export const securityAdminProService = {
           campaignId: true,
           agentId: true,
           providerCallId: true,
-          twilioCallSid: true,
           direction: true,
           remoteNumber: true,
           source: true,

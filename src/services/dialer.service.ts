@@ -1,5 +1,5 @@
 import prisma from '../lib/prisma'
-import { initiateCall } from './twilio.service'
+import { initiateCall } from './providerCall.service'
 import logger from '../utils/logger'
 import { AppError } from '../middleware/errorHandler'
 import { isCampaignRuntimeAllowed } from './campaignRuntime.service'

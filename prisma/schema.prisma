@@ -140,7 +140,6 @@ model Call {
   campaignId     Int
   agentId        Int?
   providerCallId String?
-  twilioCallSid  String?
   direction      String?
   remoteNumber   String?
   source         String?
