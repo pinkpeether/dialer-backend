@@ -5,7 +5,6 @@
   - You are about to drop the column `recordingSid` on the `Call` table. All the data in the column will be lost.
   - You are about to drop the column `recordingUrl` on the `Call` table. All the data in the column will be lost.
   - You are about to drop the column `sentiment` on the `Call` table. All the data in the column will be lost.
-  - You are about to drop the column `twilioCallSid` on the `Call` table. All the data in the column will be lost.
   - The `status` column on the `Call` table would be dropped and recreated. This will lead to data loss if there is data in the column.
   - The `disposition` column on the `Call` table would be dropped and recreated. This will lead to data loss if there is data in the column.
   - You are about to drop the column `description` on the `Campaign` table. All the data in the column will be lost.
@@ -61,8 +60,6 @@ ALTER TABLE "Call" DROP COLUMN "connectedAt",
 DROP COLUMN "recordingSid",
 DROP COLUMN "recordingUrl",
 DROP COLUMN "sentiment",
-DROP COLUMN "twilioCallSid",
-ADD COLUMN     "providerCallId" TEXT,
 DROP COLUMN "status",
 ADD COLUMN     "status" "CallStatus" NOT NULL DEFAULT 'INITIATED',
 DROP COLUMN "disposition",

@@ -230,7 +230,7 @@ export const spoofingService = {
     if (!existing) throw new AppError('Caller ID not found', 404)
 
     // Provider-agnostic: verification means admin confirms this number is allowed/verified by the active carrier/SIP provider.
-    // Twilio-owned/verified checks can be added as a separate adapter without making this feature Twilio-only.
+    // Provider-owned/verified checks can be added as a separate adapter without making this feature Provider-only.
     const updated = await prisma.spoofingNumber.update({
       where: { id },
       data: {

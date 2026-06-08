@@ -93,7 +93,7 @@ const detectProvider = (url?: string | null) => {
   if (!url) return 'none'
   try {
     const host = new URL(url).hostname.toLowerCase()
-    if (host.includes('twilio.com')) return 'twilio'
+    if (host.includes('provider.com')) return 'provider'
     if (host.includes('s3.amazonaws.com') || host.includes('amazonaws.com')) return 's3'
     if (host.includes('supabase.co')) return 'supabase'
     return host

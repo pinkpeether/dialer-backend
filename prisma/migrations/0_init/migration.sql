@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS "Call" (
     "contactId" INTEGER NOT NULL,
     "campaignId" INTEGER NOT NULL,
     "agentId" INTEGER,
-    "twilioCallSid" TEXT,
+    "providerCallId" TEXT,
     "status" TEXT NOT NULL DEFAULT 'INITIATED',
     "duration" INTEGER,
     "disposition" TEXT,
