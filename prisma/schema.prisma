@@ -303,3 +303,247 @@ model SpoofingNumber {
   @@index([isVerified])
   @@map("spoofing_numbers")
 }
+
+enum CommercialPlanCode {
+  BASIC
+  STANDARD
+  PREMIUM
+  ELITE
+  ENTERPRISE
+}
+
+enum CommercialAddonCode {
+  DYNAMIC_CALLER_ID
+  SMS
+  AI_TRANSCRIPTS
+  AI_INSIGHTS
+  RECORDINGS
+  ADVANCED_ANALYTICS
+  CRM_CONNECTORS
+}
+
+enum CommercialSubscriptionStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  EXPIRED
+  TRIAL
+}
+
+enum CommercialFeatureStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING_APPROVAL
+}
+
+enum CommercialPaymentRequestStatus {
+  PENDING_PAYMENT
+  PAYMENT_SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum CommercialWalletTransactionType {
+  MANUAL_TOPUP
+  CALL_CHARGE
+  SMS_CHARGE
+  ADJUSTMENT
+  REFUND
+  BONUS_CREDIT
+  HOLD
+  CAPTURE
+  RELEASE
+}
+
+enum CommercialWalletTransactionDirection {
+  CREDIT
+  DEBIT
+  HOLD
+  RELEASE
+}
+
+enum CommercialBillingAlertSeverity {
+  INFO
+  LOW_BALANCE
+  CRITICAL_BALANCE
+  HARD_STOP
+}
+
+model CommercialAccount {
+  id                       Int                       @id @default(autoincrement())
+  name                     String
+  code                     String                    @unique
+  status                   String                    @default("ACTIVE")
+  email                    String?
+  phone                    String?
+  currency                 String                    @default("USD")
+  lowBalanceThreshold      Decimal                   @default(10) @db.Decimal(12, 4)
+  criticalBalanceThreshold Decimal                   @default(3) @db.Decimal(12, 4)
+  hardStopEnabled          Boolean                   @default(true)
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  wallet                   CommercialWallet?
+  subscriptions            CommercialSubscription[]
+  addons                   CommercialAccountAddon[]
+  paymentRequests          CommercialPaymentRequest[]
+  billingAlerts            CommercialBillingAlert[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model CommercialPlan {
+  id              Int                        @id @default(autoincrement())
+  code            CommercialPlanCode         @unique
+  name            String
+  monthlyFee      Decimal                    @default(0) @db.Decimal(12, 4)
+  includedSeats   Int                        @default(0)
+  description     String?
+  features        Json?
+  isActive        Boolean                    @default(true)
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
+  subscriptions   CommercialSubscription[]
+  paymentRequests CommercialPaymentRequest[]
+
+  @@index([isActive])
+}
+
+model CommercialSubscription {
+  id                 Int                          @id @default(autoincrement())
+  accountId          Int
+  planId             Int
+  status             CommercialSubscriptionStatus @default(INACTIVE)
+  startsAt           DateTime                     @default(now())
+  endsAt             DateTime?
+  monthlyFeeOverride Decimal?                     @db.Decimal(12, 4)
+  billingCycle       String                       @default("MONTHLY")
+  notes              String?
+  createdAt          DateTime                     @default(now())
+  updatedAt          DateTime                     @updatedAt
+  account            CommercialAccount            @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  plan               CommercialPlan               @relation(fields: [planId], references: [id])
+
+  @@index([accountId])
+  @@index([planId])
+  @@index([status])
+  @@index([startsAt])
+}
+
+model CommercialAddon {
+  id            Int                      @id @default(autoincrement())
+  code          CommercialAddonCode      @unique
+  name          String
+  monthlyFee    Decimal                  @default(0) @db.Decimal(12, 4)
+  description   String?
+  isActive      Boolean                  @default(true)
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+  accountAddons CommercialAccountAddon[]
+
+  @@index([isActive])
+}
+
+model CommercialAccountAddon {
+  id              Int                     @id @default(autoincrement())
+  accountId       Int
+  addonId         Int
+  status          CommercialFeatureStatus @default(INACTIVE)
+  priceOverride   Decimal?                @db.Decimal(12, 4)
+  startsAt        DateTime?
+  endsAt          DateTime?
+  enabledByUserId Int?
+  notes           String?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  account         CommercialAccount       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  addon           CommercialAddon         @relation(fields: [addonId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, addonId])
+  @@index([status])
+  @@index([enabledByUserId])
+}
+
+model CommercialWallet {
+  id               Int                           @id @default(autoincrement())
+  accountId        Int                           @unique
+  currency         String                        @default("USD")
+  availableBalance Decimal                       @default(0) @db.Decimal(12, 4)
+  heldBalance      Decimal                       @default(0) @db.Decimal(12, 4)
+  creditLimit      Decimal                       @default(0) @db.Decimal(12, 4)
+  createdAt        DateTime                      @default(now())
+  updatedAt        DateTime                      @updatedAt
+  account          CommercialAccount             @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  transactions     CommercialWalletTransaction[]
+}
+
+model CommercialWalletTransaction {
+  id               Int                                  @id @default(autoincrement())
+  walletId         Int
+  type             CommercialWalletTransactionType
+  direction        CommercialWalletTransactionDirection
+  amount           Decimal                              @db.Decimal(12, 4)
+  balanceAfter     Decimal                              @db.Decimal(12, 4)
+  referenceType    String?
+  referenceId      String?
+  description      String?
+  metadata         Json?
+  approvedByUserId Int?
+  idempotencyKey   String?                              @unique
+  createdAt        DateTime                             @default(now())
+  wallet           CommercialWallet                     @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+  @@index([type])
+  @@index([direction])
+  @@index([referenceType, referenceId])
+  @@index([createdAt])
+}
+
+model CommercialPaymentRequest {
+  id               Int                             @id @default(autoincrement())
+  accountId        Int
+  requestedPlanId  Int?
+  amount           Decimal                         @db.Decimal(12, 4)
+  currency         String                          @default("USD")
+  requestedAddons  Json?
+  paymentMethod    String?
+  paymentReference String?
+  proofUrl         String?
+  notes            String?
+  status           CommercialPaymentRequestStatus  @default(PAYMENT_SUBMITTED)
+  createdByUserId  Int?
+  reviewedByUserId Int?
+  reviewedAt       DateTime?
+  createdAt        DateTime                        @default(now())
+  updatedAt        DateTime                        @updatedAt
+  account          CommercialAccount               @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  requestedPlan    CommercialPlan?                 @relation(fields: [requestedPlanId], references: [id])
+
+  @@index([accountId])
+  @@index([requestedPlanId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model CommercialBillingAlert {
+  id             Int                            @id @default(autoincrement())
+  accountId      Int
+  severity       CommercialBillingAlertSeverity
+  title          String
+  body           String?
+  balanceAt      Decimal?                       @db.Decimal(12, 4)
+  thresholdValue Decimal?                       @db.Decimal(12, 4)
+  isRead         Boolean                        @default(false)
+  readAt         DateTime?
+  createdAt      DateTime                       @default(now())
+  account        CommercialAccount              @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([severity])
+  @@index([isRead])
+  @@index([createdAt])
+}

@@ -39,6 +39,7 @@ import uiUxProRoutes from './routes/uiUxPro.routes'
 import securityAdminProRoutes from './routes/securityAdminPro.routes'
 import deploymentPlatformProRoutes from './routes/deploymentPlatformPro.routes'
 import smsRoutes from './routes/sms.routes'
+import commercialControlRoutes from './routes/commercialControl.routes'
 import { requestMetricsMiddleware } from './middleware/requestMetrics.middleware'
 
 import './services/dialerScheduler'
@@ -123,6 +124,7 @@ app.use('/api/ui-ux-pro', uiUxProRoutes)
 app.use('/api/security-admin-pro', securityAdminProRoutes)
 app.use('/api/deployment-platform-pro', deploymentPlatformProRoutes)
 app.use('/api/sms', smsRoutes)
+app.use('/api/commercial-control', commercialControlRoutes)
 
 app.use((_req, _res, next) => {
   next(new AppError('Route not found', 404))
