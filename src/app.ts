@@ -24,6 +24,7 @@ import opsRoutes      from './routes/ops.routes'
 import monitoringRoutes from './routes/monitoring.routes'
 import supportDiagnosticsRoutes from './routes/supportDiagnostics.routes'
 import spoofingRoutes from './routes/spoofing.routes'
+import dynamicCallerIdRoutes from './routes/dynamicCallerId.routes'
 import callIntelligenceRoutes from './routes/callIntelligence.routes'
 import advancedDialingRoutes from './routes/advancedDialing.routes'
 import notificationsAlertsProRoutes from './routes/notificationsAlertsPro.routes'
@@ -73,7 +74,7 @@ app.use(cors({
       callback(null, true)
       return
     }
-    callback(new AppError(`CORS blocked origin: ${origin}`, 403))
+    callback(new AppError('CORS blocked origin', 403))
   },
   credentials: true,
 }))
@@ -110,6 +111,7 @@ app.use('/api/ops', opsRoutes)
 app.use('/api/monitoring', monitoringRoutes)
 app.use('/api/support/diagnostics', supportDiagnosticsRoutes)
 app.use('/api/spoofing', spoofingRoutes)
+app.use('/api/dynamic-caller-id', dynamicCallerIdRoutes)
 app.use('/api/call-intelligence', callIntelligenceRoutes)
 app.use('/api/advanced-dialing', advancedDialingRoutes)
 app.use('/api/recording-storage-pro', recordingStorageProRoutes)
