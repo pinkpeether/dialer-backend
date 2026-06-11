@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import type { Response, NextFunction } from 'express'
 import * as AgentService from '../services/agent.service'
-import * as TeamUserScope from '../services/teamUserScope.service'
+import * as TeamUserScope from '../services/teamUserScopeV2.service'
 import { authenticate, authorize } from '../middleware/auth'
 import type { AuthRequest } from '../middleware/auth'
 import { validate } from '../middleware/validate'
