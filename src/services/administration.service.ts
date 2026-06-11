@@ -26,6 +26,7 @@ export type AddAccountMemberInput = {
 export type UpdateAccountMemberInput = Partial<Omit<AddAccountMemberInput, 'userId'>>
 
 const PLATFORM_ADMIN_ROLES = new Set(['SUPER_ADMIN', 'ADMIN'])
+const CUSTOMER_ASSIGNABLE_ROLES = new Set(['CUSTOMER_ADMIN', 'MANAGER', 'SUPERVISOR', 'AGENT'])
 const ACCOUNT_ROLES = new Set<AccountRole>(['OWNER', 'ADMIN', 'BILLING', 'SUPERVISOR', 'AGENT'])
 const MEMBERSHIP_STATUSES = new Set<MembershipStatus>(['ACTIVE', 'INACTIVE', 'SUSPENDED'])
 
@@ -131,6 +132,9 @@ async function requireUserExists(userId: number) {
   })
   if (!user) throw new AppError('User not found', 404)
   if (!user.isActive) throw new AppError('Cannot assign inactive user to account', 400)
+  if (PLATFORM_ADMIN_ROLES.has(String(user.role))) {
+    throw new AppError('Platform admins cannot be assigned as customer account members', 400)
+  }
   return user
 }
 
@@ -240,6 +244,8 @@ export const administrationService = {
     return {
       accounts,
       users,
+      platformUsers: users.filter(item => PLATFORM_ADMIN_ROLES.has(String(item.role))),
+      assignableCustomerUsers: users.filter(item => CUSTOMER_ASSIGNABLE_ROLES.has(String(item.role))),
       stats: {
         accounts: accounts.length,
         users: users.length,

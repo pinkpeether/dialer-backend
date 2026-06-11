@@ -2,6 +2,18 @@ import bcrypt from 'bcryptjs'
 import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 
+type CustomerCreatableRole = 'CUSTOMER_ADMIN' | 'MANAGER' | 'SUPERVISOR' | 'AGENT'
+
+const CUSTOMER_CREATABLE_ROLES = new Set<CustomerCreatableRole>(['CUSTOMER_ADMIN', 'MANAGER', 'SUPERVISOR', 'AGENT'])
+
+const normalizeCustomerCreatableRole = (role?: string): CustomerCreatableRole => {
+  const next = String(role || 'AGENT').trim().toUpperCase() as CustomerCreatableRole
+  if (!CUSTOMER_CREATABLE_ROLES.has(next)) {
+    throw new AppError('Use Platform Administration to manage PTDT platform admins. Customer users must be CUSTOMER_ADMIN, MANAGER, SUPERVISOR, or AGENT.', 400)
+  }
+  return next
+}
+
 export const getAllAgents = async (filters: {
   role?: string
   status?: string
@@ -85,7 +97,7 @@ export const createAgent = async (data: {
   name: string
   email: string
   password: string
-  role?: 'ADMIN' | 'SUPERVISOR' | 'AGENT'
+  role?: CustomerCreatableRole
   extension?: string
   phone?: string
 }) => {
@@ -100,6 +112,7 @@ export const createAgent = async (data: {
   const agentCode = `AGT-${String(count + 1).padStart(3, '0')}`
 
   const hashedPassword = await bcrypt.hash(data.password, 12)
+  const role = normalizeCustomerCreatableRole(data.role)
 
   const agent = await prisma.user.create({
     data: {
@@ -107,7 +120,7 @@ export const createAgent = async (data: {
       name:      data.name,
       email:     data.email,
       passwordHash: hashedPassword,
-      role:      data.role || 'AGENT',
+      role,
       extension: data.extension,
       phone:     data.phone,
     },
@@ -127,7 +140,7 @@ export const updateAgent = async (
   data: {
     name?: string
     email?: string
-    role?: 'ADMIN' | 'SUPERVISOR' | 'AGENT'
+    role?: CustomerCreatableRole
     extension?: string
     phone?: string
     isActive?: boolean
@@ -144,10 +157,14 @@ export const updateAgent = async (
     })
     if (emailTaken) throw new AppError('Email already in use', 409)
   }
+  const updateData = {
+    ...data,
+    ...(data.role ? { role: normalizeCustomerCreatableRole(data.role) } : {}),
+  }
 
   const agent = await prisma.user.update({
     where: { id },
-    data,
+    data: updateData,
     select: {
       id: true, agentCode: true, name: true,
       email: true, role: true, extension: true,

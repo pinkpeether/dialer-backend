@@ -17,9 +17,9 @@ const router = Router()
 
 router.use(authenticate)
 
-// Stats — Admin + Supervisor
+// Stats — platform/customer operations roles
 router.get('/stats',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'MANAGER', 'SUPERVISOR'),
   AgentController.getAgentStats
 )
 
@@ -63,33 +63,33 @@ router.patch('/me',
 
 // List all agents — Admin + Supervisor
 router.get('/',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'MANAGER', 'SUPERVISOR'),
   AgentController.getAllAgents
 )
 
 // Single agent — Admin + Supervisor
 router.get('/:id',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'MANAGER', 'SUPERVISOR'),
   AgentController.getAgentById
 )
 
-// Create agent — Admin only
+// Create customer-side user — platform admin or customer admin/manager only.
 router.post('/',
-  authorize('ADMIN'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'MANAGER'),
   validate(createAgentSchema),
   AgentController.createAgent
 )
 
-// Update agent — Admin only
+// Update customer-side user — platform admin or customer admin/manager only.
 router.put('/:id',
-  authorize('ADMIN'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'MANAGER'),
   validate(updateAgentSchema),
   AgentController.updateAgent
 )
 
-// Delete agent (soft) — Admin only
+// Deactivate user (soft delete) — platform admin or customer admin/manager only.
 router.delete('/:id',
-  authorize('ADMIN'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'MANAGER'),
   AgentController.deleteAgent
 )
 
@@ -99,9 +99,9 @@ router.patch('/:id/status',
   AgentController.updateAgentStatus
 )
 
-// Reset password — Admin only
+// Reset password — platform admin or customer admin/manager only.
 router.patch('/:id/reset-password',
-  authorize('ADMIN'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'MANAGER'),
   validate(resetPasswordSchema),
   AgentController.resetAgentPassword
 )
