@@ -1,18 +1,26 @@
 import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import logger from '../utils/logger'
+import { dynamicCallerIdService } from './dynamicCallerId.service'
 
 const DEFAULT_CALLER_ID = process.env.DEFAULT_OUTBOUND_CALLER_ID || ''
 
+type Actor = { id: number; email?: string; role?: string }
+type CallOptions = { callerIdId?: number | string | null }
+
 const buildProviderCallId = () => `provider_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 
-export const initiateCall = async (contactId: number, campaignId: number, agentId?: number) => {
+export const initiateCall = async (contactId: number, campaignId: number, actorOrAgentId?: Actor | number, options: CallOptions = {}) => {
+  const actor = typeof actorOrAgentId === 'object' ? actorOrAgentId : undefined
+  const agentId = typeof actorOrAgentId === 'number' ? actorOrAgentId : actorOrAgentId?.id
   const contact = await prisma.contact.findUnique({ where: { id: contactId } })
   if (!contact) throw new AppError('Contact not found', 404)
 
   const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } })
   if (!campaign) throw new AppError('Campaign not found', 404)
 
+  const dynamicCallerId = actor ? await dynamicCallerIdService.resolveForCall(actor, options.callerIdId) : null
+  const outboundCallerId = dynamicCallerId || campaign.callerId || DEFAULT_CALLER_ID || null
   const providerCallId = buildProviderCallId()
 
   const callRecord = await prisma.call.create({
@@ -34,14 +42,16 @@ export const initiateCall = async (contactId: number, campaignId: number, agentI
     data: { status: 'CALLING', lastCalledAt: new Date() },
   })
 
-  logger.info(`Provider call placeholder created: ${providerCallId} -> ${contact.phone}`)
+  logger.info(`Provider call placeholder created: ${providerCallId} -> ${contact.phone} from ${outboundCallerId || 'default'}`)
   return {
-    callRecord: { ...callRecord, providerCallId },
-    providerCall: { id: providerCallId, to: contact.phone, from: campaign.callerId || DEFAULT_CALLER_ID || null },
+    callRecord: { ...callRecord, providerCallId, callerId: outboundCallerId, dynamicCallerIdUsed: Boolean(dynamicCallerId) },
+    providerCall: { id: providerCallId, to: contact.phone, from: outboundCallerId },
   }
 }
 
-export const initiateAdhocCall = async (phone: string, agentId: number, note?: string) => {
+export const initiateAdhocCall = async (phone: string, actorOrAgentId: Actor | number, note?: string, options: CallOptions = {}) => {
+  const actor = typeof actorOrAgentId === 'object' ? actorOrAgentId : undefined
+  const agentId = typeof actorOrAgentId === 'number' ? actorOrAgentId : actorOrAgentId.id
   const contact = await prisma.contact.create({
     data: {
       phone,
@@ -64,6 +74,8 @@ export const initiateAdhocCall = async (phone: string, agentId: number, note?: s
     })
   }
 
+  const dynamicCallerId = actor ? await dynamicCallerIdService.resolveForCall(actor, options.callerIdId) : null
+  const outboundCallerId = dynamicCallerId || DEFAULT_CALLER_ID || campaign.callerId || null
   const providerCallId = buildProviderCallId()
 
   const callRecord = await prisma.call.create({
@@ -80,8 +92,8 @@ export const initiateAdhocCall = async (phone: string, agentId: number, note?: s
     },
   })
 
-  logger.info(`Ad-hoc provider call placeholder created: ${providerCallId} -> ${phone}`)
-  return { callSid: providerCallId, callId: callRecord.id, contactId: contact.id, phone, providerCallId }
+  logger.info(`Ad-hoc provider call placeholder created: ${providerCallId} -> ${phone} from ${outboundCallerId || 'default'}`)
+  return { callSid: providerCallId, callId: callRecord.id, contactId: contact.id, phone, providerCallId, callerId: outboundCallerId, dynamicCallerIdUsed: Boolean(dynamicCallerId) }
 }
 
 export const hangupCall = async (_providerCallId: string) => {
