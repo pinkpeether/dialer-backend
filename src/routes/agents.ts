@@ -17,42 +17,36 @@ const router = Router()
 
 router.use(authenticate)
 
-// Stats — platform/customer operations roles
-router.get('/stats',
-  authorize('ADMIN', 'CUSTOMER_ADMIN', 'MANAGER', 'SUPERVISOR'),
-  AgentController.getAgentStats
-)
+const viewerRoles = ['ADMIN', 'CUSTOMER_ADMIN', 'MANAGER', 'SUPERVISOR']
+const managerRoles = ['ADMIN', 'CUSTOMER_ADMIN', 'MANAGER']
+const selfRoles = ['ADMIN', 'CUSTOMER_ADMIN', 'MANAGER', 'SUPERVISOR', 'AGENT']
 
-// PATCH /agents/me/status — any authenticated user updates their own status
-// IMPORTANT: keep /me routes before /:id routes.
+router.get('/stats', authorize(...viewerRoles), AgentController.getAgentStats)
+
 router.patch('/me/status',
-  authorize('ADMIN', 'SUPERVISOR', 'AGENT'),
+  authorize(...selfRoles),
   validate(updateStatusSchema),
   async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const userId = req.user!.id
       const agent = await AgentService.updateAgentStatus(userId, req.body.status)
-      return sendSuccess(res, agent, 'Agent status updated')
+      return sendSuccess(res, agent, 'Team user status updated')
     } catch (err) {
       return next(err)
     }
   }
 )
 
-// PATCH /agents/me — any authenticated user updates their own profile (name, phone, extension)
 router.patch('/me',
-  authorize('ADMIN', 'SUPERVISOR', 'AGENT'),
+  authorize(...selfRoles),
   async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const userId = req.user!.id
       const { name, phone, extension } = req.body
-
-      // Whitelist: agents can only update name/phone/extension — not role/isActive
       const allowedData: { name?: string; phone?: string; extension?: string } = {}
-      if (typeof name      === 'string' && name.trim())      allowedData.name      = name.trim()
-      if (typeof phone     === 'string')                     allowedData.phone     = phone.trim() || undefined
-      if (typeof extension === 'string')                     allowedData.extension = extension.trim() || undefined
-
+      if (typeof name === 'string' && name.trim()) allowedData.name = name.trim()
+      if (typeof phone === 'string') allowedData.phone = phone.trim() || undefined
+      if (typeof extension === 'string') allowedData.extension = extension.trim() || undefined
       const agent = await AgentService.updateAgent(userId, allowedData)
       return sendSuccess(res, agent, 'Profile updated')
     } catch (err) {
@@ -61,49 +55,12 @@ router.patch('/me',
   }
 )
 
-// List all agents — Admin + Supervisor
-router.get('/',
-  authorize('ADMIN', 'CUSTOMER_ADMIN', 'MANAGER', 'SUPERVISOR'),
-  AgentController.getAllAgents
-)
-
-// Single agent — Admin + Supervisor
-router.get('/:id',
-  authorize('ADMIN', 'CUSTOMER_ADMIN', 'MANAGER', 'SUPERVISOR'),
-  AgentController.getAgentById
-)
-
-// Create customer-side user — platform admin or customer admin/manager only.
-router.post('/',
-  authorize('ADMIN', 'CUSTOMER_ADMIN', 'MANAGER'),
-  validate(createAgentSchema),
-  AgentController.createAgent
-)
-
-// Update customer-side user — platform admin or customer admin/manager only.
-router.put('/:id',
-  authorize('ADMIN', 'CUSTOMER_ADMIN', 'MANAGER'),
-  validate(updateAgentSchema),
-  AgentController.updateAgent
-)
-
-// Deactivate user (soft delete) — platform admin or customer admin/manager only.
-router.delete('/:id',
-  authorize('ADMIN', 'CUSTOMER_ADMIN', 'MANAGER'),
-  AgentController.deleteAgent
-)
-
-// Update status for specific agent — Admin + Supervisor
-router.patch('/:id/status',
-  validate(updateStatusSchema),
-  AgentController.updateAgentStatus
-)
-
-// Reset password — platform admin or customer admin/manager only.
-router.patch('/:id/reset-password',
-  authorize('ADMIN', 'CUSTOMER_ADMIN', 'MANAGER'),
-  validate(resetPasswordSchema),
-  AgentController.resetAgentPassword
-)
+router.get('/', authorize(...viewerRoles), AgentController.getAllAgents)
+router.get('/:id', authorize(...viewerRoles), AgentController.getAgentById)
+router.post('/', authorize(...managerRoles), validate(createAgentSchema), AgentController.createAgent)
+router.put('/:id', authorize(...managerRoles), validate(updateAgentSchema), AgentController.updateAgent)
+router.delete('/:id', authorize(...managerRoles), AgentController.deleteAgent)
+router.patch('/:id/status', authorize(...viewerRoles), validate(updateStatusSchema), AgentController.updateAgentStatus)
+router.patch('/:id/reset-password', authorize(...managerRoles), validate(resetPasswordSchema), AgentController.resetAgentPassword)
 
 export default router
