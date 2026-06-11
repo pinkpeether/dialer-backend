@@ -7,7 +7,7 @@ import { authLimiter, apiLimiter } from './middleware/rateLimiter'
 import { AppError, errorHandler } from './middleware/errorHandler'
 
 import authRoutes     from './routes/auth'
-import agentRoutes    from './routes/agents'
+import agentRoutes    from './routes/teamAgents.routes'
 import campaignRoutes from './routes/campaigns'
 import contactRoutes  from './routes/contacts'
 import dialerRoutes   from './routes/dialer'
