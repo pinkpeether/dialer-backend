@@ -4,7 +4,7 @@ export const createAgentSchema = Joi.object({
   name:      Joi.string().min(2).max(50).required(),
   email:     Joi.string().email().required(),
   password:  Joi.string().min(6).max(50).required(),
-  role:      Joi.string().valid('ADMIN', 'SUPERVISOR', 'AGENT').default('AGENT'),
+  role:      Joi.string().valid('CUSTOMER_ADMIN', 'MANAGER', 'SUPERVISOR', 'AGENT').default('AGENT'),
   extension: Joi.string().max(10).optional().allow(''),
   phone:     Joi.string().max(20).optional().allow(''),
 })
@@ -12,7 +12,7 @@ export const createAgentSchema = Joi.object({
 export const updateAgentSchema = Joi.object({
   name:      Joi.string().min(2).max(50).optional(),
   email:     Joi.string().email().optional(),
-  role:      Joi.string().valid('ADMIN', 'SUPERVISOR', 'AGENT').optional(),
+  role:      Joi.string().valid('CUSTOMER_ADMIN', 'MANAGER', 'SUPERVISOR', 'AGENT').optional(),
   extension: Joi.string().max(10).optional().allow(''),
   phone:     Joi.string().max(20).optional().allow(''),
   isActive:  Joi.boolean().optional(),
