@@ -18,6 +18,16 @@ const normalizeCustomerCreatableRole = (role?: string): CustomerCreatableRole =>
 
 const isPlatformAdminRole = (role?: string | null) => Boolean(role && PLATFORM_ADMIN_ROLES.has(String(role)))
 
+const generateAgentCode = async () => {
+  const baseCount = await prisma.user.count()
+  for (let offset = 1; offset <= 500; offset += 1) {
+    const code = `AGT-${String(baseCount + offset).padStart(3, '0')}`
+    const exists = await prisma.user.findUnique({ where: { agentCode: code }, select: { id: true } })
+    if (!exists) return code
+  }
+  return `AGT-${Date.now()}`
+}
+
 export const getAllAgents = async (filters: {
   role?: string
   status?: string
@@ -108,36 +118,45 @@ export const createAgent = async (data: {
   extension?: string
   phone?: string
 }) => {
+  const normalizedEmail = data.email.trim().toLowerCase()
   const existing = await prisma.user.findUnique({
-    where: { email: data.email }
+    where: { email: normalizedEmail }
   })
   if (existing) throw new AppError('Email already registered', 409)
 
-  const count = await prisma.user.count()
-  const agentCode = `AGT-${String(count + 1).padStart(3, '0')}`
-
+  const agentCode = await generateAgentCode()
   const hashedPassword = await bcrypt.hash(data.password, 12)
   const role = normalizeCustomerCreatableRole(data.role)
+  const extension = data.extension?.trim() || undefined
+  const phone = data.phone?.trim() || undefined
 
-  const agent = await prisma.user.create({
-    data: {
-      agentCode,
-      name:      data.name,
-      email:     data.email,
-      passwordHash: hashedPassword,
-      role,
-      extension: data.extension,
-      phone:     data.phone,
-    },
-    select: {
-      id: true, agentCode: true, name: true,
-      email: true, role: true, extension: true,
-      phone: true, status: true, isActive: true,
-      createdAt: true,
-    },
-  })
+  try {
+    const agent = await prisma.user.create({
+      data: {
+        agentCode,
+        name:      data.name.trim(),
+        email:     normalizedEmail,
+        passwordHash: hashedPassword,
+        role,
+        extension,
+        phone,
+      },
+      select: {
+        id: true, agentCode: true, name: true,
+        email: true, role: true, extension: true,
+        phone: true, status: true, isActive: true,
+        createdAt: true,
+      },
+    })
 
-  return agent
+    return agent
+  } catch (err: any) {
+    if (err?.code === 'P2002') {
+      const target = Array.isArray(err?.meta?.target) ? err.meta.target.join(', ') : String(err?.meta?.target || 'unique field')
+      throw new AppError(`Team user could not be created because ${target} is already in use. Please retry with another email/extension.`, 409)
+    }
+    throw err
+  }
 }
 
 export const updateAgent = async (
