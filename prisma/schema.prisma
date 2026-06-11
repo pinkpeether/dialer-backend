@@ -9,9 +9,12 @@ datasource db {
 }
 
 enum UserRole {
+  SUPER_ADMIN
   ADMIN
-  AGENT
+  CUSTOMER_ADMIN
+  MANAGER
   SUPERVISOR
+  AGENT
 }
 
 enum UserStatus {
@@ -87,6 +90,7 @@ model User {
   callbacks       Callback[]
   dncEntries      DNCList[]
   spoofingNumbers SpoofingNumber[]
+  commercialMemberships CommercialAccountMembership[]
 }
 
 model Campaign {
@@ -390,6 +394,7 @@ model CommercialAccount {
   addons                   CommercialAccountAddon[]
   paymentRequests          CommercialPaymentRequest[]
   billingAlerts            CommercialBillingAlert[]
+  memberships              CommercialAccountMembership[]
 
   @@index([status])
   @@index([createdAt])
@@ -545,5 +550,45 @@ model CommercialBillingAlert {
   @@index([accountId])
   @@index([severity])
   @@index([isRead])
+  @@index([createdAt])
+}
+
+enum CommercialAccountRole {
+  OWNER
+  ADMIN
+  BILLING
+  SUPERVISOR
+  AGENT
+}
+
+enum CommercialAccountMembershipStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+model CommercialAccountMembership {
+  id                    Int                               @id @default(autoincrement())
+  accountId             Int
+  userId                Int
+  accountRole           CommercialAccountRole             @default(AGENT)
+  status                CommercialAccountMembershipStatus @default(ACTIVE)
+  canManageUsers        Boolean                           @default(false)
+  canManageBilling      Boolean                           @default(false)
+  canManageCampaigns    Boolean                           @default(false)
+  canViewReports        Boolean                           @default(true)
+  canUseDynamicCallerId Boolean                           @default(false)
+  createdByUserId       Int?
+  notes                 String?                           @db.Text
+  createdAt             DateTime                          @default(now())
+  updatedAt             DateTime                          @updatedAt
+  account               CommercialAccount                 @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  user                  User                              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, userId])
+  @@index([accountId])
+  @@index([userId])
+  @@index([accountRole])
+  @@index([status])
   @@index([createdAt])
 }
