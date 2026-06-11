@@ -4,15 +4,19 @@ import { AppError } from '../middleware/errorHandler'
 
 type CustomerCreatableRole = 'CUSTOMER_ADMIN' | 'MANAGER' | 'SUPERVISOR' | 'AGENT'
 
-const CUSTOMER_CREATABLE_ROLES = new Set<CustomerCreatableRole>(['CUSTOMER_ADMIN', 'MANAGER', 'SUPERVISOR', 'AGENT'])
+const CUSTOMER_USER_ROLES = ['CUSTOMER_ADMIN', 'MANAGER', 'SUPERVISOR', 'AGENT'] as const
+const CUSTOMER_CREATABLE_ROLES = new Set<CustomerCreatableRole>(CUSTOMER_USER_ROLES)
+const PLATFORM_ADMIN_ROLES = new Set(['SUPER_ADMIN', 'ADMIN'])
 
 const normalizeCustomerCreatableRole = (role?: string): CustomerCreatableRole => {
   const next = String(role || 'AGENT').trim().toUpperCase() as CustomerCreatableRole
   if (!CUSTOMER_CREATABLE_ROLES.has(next)) {
-    throw new AppError('Use Platform Administration to manage PTDT platform admins. Customer users must be CUSTOMER_ADMIN, MANAGER, SUPERVISOR, or AGENT.', 400)
+    throw new AppError('Use Platform Administration to manage PTDT platform admins. Team users must be CUSTOMER_ADMIN, MANAGER, SUPERVISOR, or AGENT.', 400)
   }
   return next
 }
+
+const isPlatformAdminRole = (role?: string | null) => Boolean(role && PLATFORM_ADMIN_ROLES.has(String(role)))
 
 export const getAllAgents = async (filters: {
   role?: string
@@ -27,10 +31,11 @@ export const getAllAgents = async (filters: {
     search, page = 1, limit = 20
   } = filters
 
-  const where: Record<string, unknown> = {}
+  const where: Record<string, unknown> = {
+    role: role ? normalizeCustomerCreatableRole(role) : { in: [...CUSTOMER_USER_ROLES] },
+  }
 
-  if (role)     where.role     = role
-  if (status)   where.status   = status
+  if (status) where.status = status
   if (isActive !== undefined) where.isActive = isActive
 
   if (search) {
@@ -42,7 +47,6 @@ export const getAllAgents = async (filters: {
     ]
   }
 
-  // Keep sequential for small Supabase pooler connections.
   const agents = await prisma.user.findMany({
     where,
     select: {
@@ -89,7 +93,10 @@ export const getAgentById = async (id: number) => {
       }
     },
   })
-  if (!agent) throw new AppError('Agent not found', 404)
+  if (!agent) throw new AppError('Team user not found', 404)
+  if (isPlatformAdminRole(agent.role)) {
+    throw new AppError('PTDT platform admins are not managed from the Team Users page', 403)
+  }
   return agent
 }
 
@@ -101,13 +108,11 @@ export const createAgent = async (data: {
   extension?: string
   phone?: string
 }) => {
-  // Check duplicate email
   const existing = await prisma.user.findUnique({
     where: { email: data.email }
   })
   if (existing) throw new AppError('Email already registered', 409)
 
-  // Auto-generate agent code
   const count = await prisma.user.count()
   const agentCode = `AGT-${String(count + 1).padStart(3, '0')}`
 
@@ -146,20 +151,28 @@ export const updateAgent = async (
     isActive?: boolean
   }
 ) => {
-  // Check agent exists
   const existing = await prisma.user.findUnique({ where: { id } })
-  if (!existing) throw new AppError('Agent not found', 404)
+  if (!existing) throw new AppError('Team user not found', 404)
 
-  // Check email duplicate if email is being changed
+  if (isPlatformAdminRole(existing.role)) {
+    const restrictedPlatformChange = data.role !== undefined || data.isActive !== undefined || data.email !== undefined
+    if (restrictedPlatformChange) {
+      throw new AppError('PTDT platform admins cannot be changed from the Team Users page', 403)
+    }
+  }
+
   if (data.email && data.email !== existing.email) {
     const emailTaken = await prisma.user.findUnique({
       where: { email: data.email }
     })
     if (emailTaken) throw new AppError('Email already in use', 409)
   }
+
   const updateData = {
     ...data,
     ...(data.role ? { role: normalizeCustomerCreatableRole(data.role) } : {}),
+    ...(data.isActive === true ? { status: 'OFFLINE' as const } : {}),
+    ...(data.isActive === false ? { status: 'OFFLINE' as const } : {}),
   }
 
   const agent = await prisma.user.update({
@@ -176,14 +189,23 @@ export const updateAgent = async (
   return agent
 }
 
-export const deleteAgent = async (id: number) => {
+export const deleteAgent = async (id: number, actorId?: number) => {
   const existing = await prisma.user.findUnique({ where: { id } })
-  if (!existing) throw new AppError('Agent not found', 404)
+  if (!existing) throw new AppError('Team user not found', 404)
+  if (actorId && actorId === id) throw new AppError('You cannot deactivate your own signed-in account', 400)
+  if (isPlatformAdminRole(existing.role)) {
+    throw new AppError('PTDT platform admins cannot be deactivated from the Team Users page', 403)
+  }
 
-  // Soft delete — isActive = false
-  await prisma.user.update({
+  return prisma.user.update({
     where: { id },
     data: { isActive: false, status: 'OFFLINE' },
+    select: {
+      id: true, agentCode: true, name: true,
+      email: true, role: true, extension: true,
+      phone: true, status: true, isActive: true,
+      updatedAt: true,
+    },
   })
 }
 
@@ -192,7 +214,8 @@ export const updateAgentStatus = async (
   status: 'ONLINE' | 'READY' | 'BUSY' | 'WRAP_UP' | 'OFFLINE'
 ) => {
   const existing = await prisma.user.findUnique({ where: { id } })
-  if (!existing) throw new AppError('Agent not found', 404)
+  if (!existing) throw new AppError('Team user not found', 404)
+  if (!existing.isActive) throw new AppError('Inactive users cannot change status', 400)
 
   return await prisma.user.update({
     where: { id },
@@ -209,7 +232,10 @@ export const resetAgentPassword = async (
   newPassword: string
 ) => {
   const existing = await prisma.user.findUnique({ where: { id } })
-  if (!existing) throw new AppError('Agent not found', 404)
+  if (!existing) throw new AppError('Team user not found', 404)
+  if (isPlatformAdminRole(existing.role)) {
+    throw new AppError('PTDT platform admin passwords must be managed through platform security controls', 403)
+  }
 
   const hashed = await bcrypt.hash(newPassword, 12)
   await prisma.user.update({
@@ -219,8 +245,14 @@ export const resetAgentPassword = async (
 }
 
 export const getAgentStats = async () => {
+  const where = {
+    role: { in: [...CUSTOMER_USER_ROLES] },
+    isActive: true,
+  }
+
   const grouped = await prisma.user.groupBy({
     by: ['status'],
+    where,
     _count: { _all: true },
   })
 
