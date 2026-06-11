@@ -215,7 +215,6 @@ export const updateAgentStatus = async (
 ) => {
   const existing = await prisma.user.findUnique({ where: { id } })
   if (!existing) throw new AppError('Team user not found', 404)
-  if (isPlatformAdminRole(existing.role)) throw new AppError('PTDT platform admins are not managed from the Team Users page', 403)
   if (!existing.isActive) throw new AppError('Inactive users cannot change status', 400)
 
   return await prisma.user.update({
