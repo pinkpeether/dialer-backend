@@ -21,7 +21,7 @@ export const getAllAgents = async (
       limit:    limit ? Number(limit) : 20,
     })
 
-    return sendSuccess(res, result, 'Agents fetched')
+    return sendSuccess(res, result, 'Team users fetched')
   } catch (err) { return next(err) }
 }
 
@@ -30,7 +30,7 @@ export const getAgentById = async (
 ) => {
   try {
     const agent = await AgentService.getAgentById(Number(req.params.id))
-    return sendSuccess(res, agent, 'Agent fetched')
+    return sendSuccess(res, agent, 'Team user fetched')
   } catch (err) { return next(err) }
 }
 
@@ -39,7 +39,7 @@ export const createAgent = async (
 ) => {
   try {
     const agent = await AgentService.createAgent(req.body)
-    return sendSuccess(res, agent, 'Agent created successfully', 201)
+    return sendSuccess(res, agent, 'Team user created successfully', 201)
   } catch (err) { return next(err) }
 }
 
@@ -48,7 +48,7 @@ export const updateAgent = async (
 ) => {
   try {
     const agent = await AgentService.updateAgent(Number(req.params.id), req.body)
-    return sendSuccess(res, agent, 'Agent updated successfully')
+    return sendSuccess(res, agent, 'Team user updated successfully')
   } catch (err) { return next(err) }
 }
 
@@ -56,8 +56,8 @@ export const deleteAgent = async (
   req: AuthRequest, res: Response, next: NextFunction
 ) => {
   try {
-    await AgentService.deleteAgent(Number(req.params.id))
-    return sendSuccess(res, null, 'Agent deactivated successfully')
+    const agent = await AgentService.deleteAgent(Number(req.params.id), req.user?.id)
+    return sendSuccess(res, agent, 'Team user deactivated successfully')
   } catch (err) { return next(err) }
 }
 
@@ -69,7 +69,7 @@ export const updateAgentStatus = async (
       Number(req.params.id),
       req.body.status
     )
-    return sendSuccess(res, agent, 'Agent status updated')
+    return sendSuccess(res, agent, 'Team user status updated')
   } catch (err) { return next(err) }
 }
 
@@ -90,6 +90,6 @@ export const getAgentStats = async (
 ) => {
   try {
     const stats = await AgentService.getAgentStats()
-    return sendSuccess(res, stats, 'Agent stats fetched')
+    return sendSuccess(res, stats, 'Team user stats fetched')
   } catch (err) { return next(err) }
 }
