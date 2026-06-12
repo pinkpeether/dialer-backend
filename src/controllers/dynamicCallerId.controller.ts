@@ -3,6 +3,7 @@ import { AuthRequest } from '../middleware/auth'
 import { sendSuccess } from '../utils/response'
 import { AppError } from '../middleware/errorHandler'
 import { dynamicCallerIdService } from '../services/dynamicCallerId.service'
+import { resolveDynamicCallerIdForCall } from '../services/dynamicCallerIdRuntime.service'
 
 const idParam = (value: string) => {
   const id = Number(value)
@@ -37,5 +38,14 @@ export const adminCreate = async (req: AuthRequest, res: Response, next: NextFun
 export const setStatus = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     return sendSuccess(res, await dynamicCallerIdService.setStatus(req.user!, idParam(req.params.id), req.body.status), 'Dynamic Caller ID status updated')
+  } catch (err) { return next(err) }
+}
+
+export const preflight = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const callerIdId = req.body?.callerIdId
+    if (!callerIdId) return sendSuccess(res, { allowed: true, callerId: null, dynamicCallerIdUsed: false }, 'Default Caller ID allowed')
+    const callerId = await resolveDynamicCallerIdForCall(req.user!, callerIdId)
+    return sendSuccess(res, { allowed: true, callerId, dynamicCallerIdUsed: Boolean(callerId) }, 'Dynamic Caller ID preflight passed')
   } catch (err) { return next(err) }
 }
