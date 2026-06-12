@@ -35,14 +35,18 @@ export type AmiOriginateResult = {
 const sanitizeDialString = (value: string) => value.replace(/[^0-9+*#]/g, '')
 const sanitizeCallerId = (value?: string | null) => value ? value.replace(/[\r\n]/g, '').trim() : ''
 const actionId = () => 'ami_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8)
+const replaceToken = (value: string, token: string, replacement: string) => value.split(token).join(replacement)
 
-const renderTemplate = (template: string, input: AmiOriginateInput) => template
-  .replaceAll('{to}', sanitizeDialString(input.to))
-  .replaceAll('{callerId}', sanitizeCallerId(input.callerId))
-  .replaceAll('{trunk}', TRUNK_NAME)
-  .replaceAll('{callId}', String(input.callId || ''))
-  .replaceAll('{campaignId}', String(input.campaignId || ''))
-  .replaceAll('{agentId}', String(input.agentId || ''))
+const renderTemplate = (template: string, input: AmiOriginateInput) => {
+  let output = template
+  output = replaceToken(output, '{to}', sanitizeDialString(input.to))
+  output = replaceToken(output, '{callerId}', sanitizeCallerId(input.callerId))
+  output = replaceToken(output, '{trunk}', TRUNK_NAME)
+  output = replaceToken(output, '{callId}', String(input.callId || ''))
+  output = replaceToken(output, '{campaignId}', String(input.campaignId || ''))
+  output = replaceToken(output, '{agentId}', String(input.agentId || ''))
+  return output
+}
 
 function resolveOriginate(input: AmiOriginateInput) {
   const to = sanitizeDialString(input.to)
