@@ -16,4 +16,18 @@ router.post('/call/backend-adhoc', authorize('AGENT', 'ADMIN', 'SUPERVISOR', 'CU
   } catch (err) { return next(err) }
 })
 
+router.post('/call/backend-hangup', authorize('AGENT', 'ADMIN', 'SUPERVISOR', 'CUSTOMER_ADMIN', 'MANAGER'), async (req: AuthRequest, res, next) => {
+  try {
+    const { callId, providerCallId, phone, agentExtension } = req.body
+    if (!callId && !providerCallId && !phone) return sendError(res, 'callId, providerCallId, or phone required', 400)
+    const result = await ProviderCallService.hangupBackendOriginated({
+      callId,
+      providerCallId,
+      phone: phone ? String(phone).trim() : null,
+      agentExtension: agentExtension ? String(agentExtension).trim() : null,
+    })
+    return sendSuccess(res, result, 'Backend-originated Dynamic Caller ID call hangup requested')
+  } catch (err) { return next(err) }
+})
+
 export default router

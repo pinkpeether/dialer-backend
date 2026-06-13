@@ -2,7 +2,7 @@ import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import logger from '../utils/logger'
 import { resolveDynamicCallerIdForCall } from './dynamicCallerIdRuntime.service'
-import { originateOutboundCall } from './asteriskAmi.service'
+import { hangupBackendOriginatedCall, originateOutboundCall } from './asteriskAmi.service'
 
 const DEFAULT_CALLER_ID = process.env.DEFAULT_OUTBOUND_CALLER_ID || ''
 
@@ -108,8 +108,34 @@ export const initiateAdhocCall = async (phone: string, actorOrAgentId: Actor | n
   }
 }
 
-export const hangupCall = async (_providerCallId: string) => {
-  logger.info('Provider hangup request acknowledged')
+export const hangupBackendOriginated = async (input: { callId?: number | string | null; providerCallId?: string | null; phone?: string | null; agentExtension?: string | null }) => {
+  const callId = input.callId ? Number(input.callId) : null
+  const callRecord = callId && Number.isInteger(callId)
+    ? await prisma.call.findUnique({ where: { id: callId } }).catch(() => null)
+    : input.providerCallId
+      ? await prisma.call.findFirst({ where: { providerCallId: String(input.providerCallId) } }).catch(() => null)
+      : null
+
+  const result = await hangupBackendOriginatedCall({
+    callId: callRecord?.id || input.callId,
+    providerCallId: callRecord?.providerCallId || input.providerCallId,
+    phone: input.phone || callRecord?.remoteNumber || null,
+    agentExtension: input.agentExtension || null,
+  })
+
+  if (callRecord?.id) {
+    await prisma.call.update({
+      where: { id: callRecord.id },
+      data: { endedAt: new Date() },
+    }).catch(() => undefined)
+  }
+
+  logger.info('Backend-originated PTDT-Dialer hangup requested')
+  return result
+}
+
+export const hangupCall = async (providerCallId: string) => {
+  return hangupBackendOriginated({ providerCallId })
 }
 
 export const sendDTMF = async (_providerCallId: string, _digits: string) => {
