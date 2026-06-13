@@ -11,11 +11,13 @@ const AMI_TIMEOUT_MS = Number(process.env.ASTERISK_AMI_TIMEOUT_MS || 8000)
 const ORIGINATE_TIMEOUT_MS = Number(process.env.ASTERISK_ORIGINATE_TIMEOUT_MS || 30000)
 
 const CHANNEL_TEMPLATE = process.env.ASTERISK_ORIGINATE_CHANNEL_TEMPLATE || ''
+const AGENT_CHANNEL_TEMPLATE = process.env.ASTERISK_AGENT_CHANNEL_TEMPLATE || 'PJSIP/{agentExtension}'
 const TRUNK_NAME = process.env.ASTERISK_TRUNK_NAME || ''
 const ORIGINATE_CONTEXT = process.env.ASTERISK_ORIGINATE_CONTEXT || ''
 const ORIGINATE_EXTENSION_TEMPLATE = process.env.ASTERISK_ORIGINATE_EXTENSION_TEMPLATE || ''
 const ORIGINATE_PRIORITY = process.env.ASTERISK_ORIGINATE_PRIORITY || '1'
 const ORIGINATE_ACCOUNT = process.env.ASTERISK_ORIGINATE_ACCOUNT || 'ptdt-dialer'
+const TWO_LEG_CONTEXT = process.env.ASTERISK_TWO_LEG_CONTEXT || 'ptdt-dynamic-callerid'
 
 export type AmiOriginateInput = {
   to: string
@@ -23,6 +25,7 @@ export type AmiOriginateInput = {
   callId?: number | string | null
   campaignId?: number | string | null
   agentId?: number | string | null
+  agentExtension?: string | null
   dynamicCallerIdUsed?: boolean
 }
 
@@ -33,6 +36,7 @@ export type AmiOriginateResult = {
 }
 
 const sanitizeDialString = (value: string) => value.replace(/[^0-9+*#]/g, '')
+const sanitizeExtension = (value?: string | null) => value ? value.replace(/[^0-9A-Za-z_.-]/g, '').trim() : ''
 const sanitizeCallerId = (value?: string | null) => value ? value.replace(/[\r\n]/g, '').trim() : ''
 const actionId = () => 'ami_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8)
 const replaceToken = (value: string, token: string, replacement: string) => value.split(token).join(replacement)
@@ -45,12 +49,22 @@ const renderTemplate = (template: string, input: AmiOriginateInput) => {
   output = replaceToken(output, '{callId}', String(input.callId || ''))
   output = replaceToken(output, '{campaignId}', String(input.campaignId || ''))
   output = replaceToken(output, '{agentId}', String(input.agentId || ''))
+  output = replaceToken(output, '{agentExtension}', sanitizeExtension(input.agentExtension))
   return output
 }
 
 function resolveOriginate(input: AmiOriginateInput) {
   const to = sanitizeDialString(input.to)
   if (!to) throw new AppError('Destination phone number is invalid for AMI originate', 400)
+
+  const agentExtension = sanitizeExtension(input.agentExtension)
+  if (agentExtension) {
+    return {
+      channel: renderTemplate(AGENT_CHANNEL_TEMPLATE, input),
+      context: TWO_LEG_CONTEXT,
+      exten: to,
+    }
+  }
 
   const channel = CHANNEL_TEMPLATE
     ? renderTemplate(CHANNEL_TEMPLATE, input)
@@ -124,6 +138,7 @@ export async function originateOutboundCall(input: AmiOriginateInput): Promise<A
     'PTDT_CALL_ID=' + String(input.callId || ''),
     'PTDT_CAMPAIGN_ID=' + String(input.campaignId || ''),
     'PTDT_AGENT_ID=' + String(input.agentId || ''),
+    'PTDT_AGENT_EXTENSION=' + sanitizeExtension(input.agentExtension),
     'PTDT_DYNAMIC_CALLER_ID=' + (input.dynamicCallerIdUsed ? '1' : '0'),
     callerId ? 'PTDT_SELECTED_CALLER_ID=' + callerId : '',
   ].filter(Boolean)
