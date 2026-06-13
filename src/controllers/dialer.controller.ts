@@ -73,18 +73,18 @@ export const callPreviewContact = async (req: AuthRequest, res: Response, next: 
 
 export const makeManualCall = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { contactId, campaignId } = req.body
+    const { contactId, campaignId, callerIdId } = req.body
     if (!contactId || !campaignId) return sendError(res, 'contactId and campaignId required', 400)
-    const result = await ProviderCallService.initiateCall(Number(contactId), Number(campaignId), req.user!.id)
+    const result = await ProviderCallService.initiateCall(Number(contactId), Number(campaignId), req.user!, { callerIdId })
     return sendSuccess(res, result, 'Call initiated')
   } catch (err) { return next(err) }
 }
 
 export const makeAdhocCall = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { phone, note } = req.body
+    const { phone, note, callerIdId } = req.body
     if (!phone) return sendError(res, 'phone number required', 400)
-    const result = await ProviderCallService.initiateAdhocCall(String(phone).trim(), req.user!.id, note ? String(note) : undefined)
+    const result = await ProviderCallService.initiateAdhocCall(String(phone).trim(), req.user!, note ? String(note) : undefined, { callerIdId })
     return sendSuccess(res, result, 'Ad-hoc call initiated')
   } catch (err) { return next(err) }
 }

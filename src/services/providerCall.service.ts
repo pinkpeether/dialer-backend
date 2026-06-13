@@ -1,19 +1,28 @@
 import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import logger from '../utils/logger'
+import { resolveDynamicCallerIdForCall } from './dynamicCallerIdRuntime.service'
+import { originateOutboundCall } from './asteriskAmi.service'
 
 const DEFAULT_CALLER_ID = process.env.DEFAULT_OUTBOUND_CALLER_ID || ''
 
-const buildProviderCallId = () => `provider_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+type Actor = { id: number; email?: string; role?: string }
+type CallOptions = { callerIdId?: number | string | null; agentExtension?: string | null }
 
-export const initiateCall = async (contactId: number, campaignId: number, agentId?: number) => {
+const sanitizeAgentExtension = (value?: string | null) => value ? value.replace(/[^0-9A-Za-z_.-]/g, '').trim() : ''
+
+export const initiateCall = async (contactId: number, campaignId: number, actorOrAgentId?: Actor | number, options: CallOptions = {}) => {
+  const actor = typeof actorOrAgentId === 'object' ? actorOrAgentId : undefined
+  const agentId = typeof actorOrAgentId === 'number' ? actorOrAgentId : actorOrAgentId?.id
   const contact = await prisma.contact.findUnique({ where: { id: contactId } })
   if (!contact) throw new AppError('Contact not found', 404)
 
   const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } })
   if (!campaign) throw new AppError('Campaign not found', 404)
 
-  const providerCallId = buildProviderCallId()
+  const dynamicCallerId = actor ? await resolveDynamicCallerIdForCall(actor, options.callerIdId) : null
+  const outboundCallerId = dynamicCallerId || campaign.callerId || DEFAULT_CALLER_ID || null
+  const agentExtension = sanitizeAgentExtension(options.agentExtension)
 
   const callRecord = await prisma.call.create({
     data: {
@@ -24,47 +33,47 @@ export const initiateCall = async (contactId: number, campaignId: number, agentI
       direction: 'outgoing',
       remoteNumber: contact.phone,
       source: process.env.SIP_TRUNK_PROVIDER || 'sip_trunk',
-      providerCallId,
+      providerCallId: 'pending_ami_' + Date.now(),
       startedAt: new Date(),
     },
   })
 
-  await prisma.contact.update({
-    where: { id: contactId },
-    data: { status: 'CALLING', lastCalledAt: new Date() },
-  })
-
-  logger.info(`Provider call placeholder created: ${providerCallId} -> ${contact.phone}`)
-  return {
-    callRecord: { ...callRecord, providerCallId },
-    providerCall: { id: providerCallId, to: contact.phone, from: campaign.callerId || DEFAULT_CALLER_ID || null },
+  try {
+    const originate = await originateOutboundCall({
+      to: contact.phone,
+      callerId: outboundCallerId,
+      callId: callRecord.id,
+      campaignId,
+      agentId,
+      agentExtension,
+      dynamicCallerIdUsed: Boolean(dynamicCallerId),
+    })
+    const updatedCall = await prisma.call.update({ where: { id: callRecord.id }, data: { providerCallId: originate.providerCallId } })
+    await prisma.contact.update({ where: { id: contactId }, data: { status: 'CALLING', lastCalledAt: new Date() } })
+    logger.info(originate.enabled ? 'Asterisk AMI originate queued for campaign/contact call' : 'AMI disabled; provider placeholder created')
+    return {
+      callRecord: { ...updatedCall, callerId: outboundCallerId, dynamicCallerIdUsed: Boolean(dynamicCallerId), backendOriginate: originate.enabled, agentExtension },
+      providerCall: { id: originate.providerCallId, to: contact.phone, from: outboundCallerId, backendOriginate: originate.enabled, agentExtension },
+    }
+  } catch (err) {
+    await prisma.call.update({ where: { id: callRecord.id }, data: { status: 'FAILED', endedAt: new Date() } }).catch(() => undefined)
+    throw err
   }
 }
 
-export const initiateAdhocCall = async (phone: string, agentId: number, note?: string) => {
-  const contact = await prisma.contact.create({
-    data: {
-      phone,
-      name: note || 'Ad-hoc Call',
-      status: 'CALLING',
-      lastCalledAt: new Date(),
-    },
-  })
+export const initiateAdhocCall = async (phone: string, actorOrAgentId: Actor | number, note?: string, options: CallOptions = {}) => {
+  const actor = typeof actorOrAgentId === 'object' ? actorOrAgentId : undefined
+  const agentId = typeof actorOrAgentId === 'number' ? actorOrAgentId : actorOrAgentId.id
+  const contact = await prisma.contact.create({ data: { phone, name: note || 'Ad-hoc Call', status: 'CALLING', lastCalledAt: new Date() } })
 
   let campaign = await prisma.campaign.findFirst({ where: { name: '__adhoc__' } })
   if (!campaign) {
-    campaign = await prisma.campaign.create({
-      data: {
-        name: '__adhoc__',
-        description: 'System campaign for ad-hoc manual calls',
-        status: 'ACTIVE',
-        callerId: DEFAULT_CALLER_ID,
-        dialingRatio: 1,
-      },
-    })
+    campaign = await prisma.campaign.create({ data: { name: '__adhoc__', description: 'System campaign for ad-hoc manual calls', status: 'ACTIVE', callerId: DEFAULT_CALLER_ID, dialingRatio: 1 } })
   }
 
-  const providerCallId = buildProviderCallId()
+  const dynamicCallerId = actor ? await resolveDynamicCallerIdForCall(actor, options.callerIdId) : null
+  const outboundCallerId = dynamicCallerId || DEFAULT_CALLER_ID || campaign.callerId || null
+  const agentExtension = sanitizeAgentExtension(options.agentExtension)
 
   const callRecord = await prisma.call.create({
     data: {
@@ -75,13 +84,28 @@ export const initiateAdhocCall = async (phone: string, agentId: number, note?: s
       direction: 'outgoing',
       remoteNumber: phone,
       source: process.env.SIP_TRUNK_PROVIDER || 'sip_trunk',
-      providerCallId,
+      providerCallId: 'pending_ami_' + Date.now(),
       startedAt: new Date(),
     },
   })
 
-  logger.info(`Ad-hoc provider call placeholder created: ${providerCallId} -> ${phone}`)
-  return { callSid: providerCallId, callId: callRecord.id, contactId: contact.id, phone, providerCallId }
+  try {
+    const originate = await originateOutboundCall({
+      to: phone,
+      callerId: outboundCallerId,
+      callId: callRecord.id,
+      campaignId: campaign.id,
+      agentId,
+      agentExtension,
+      dynamicCallerIdUsed: Boolean(dynamicCallerId),
+    })
+    const updatedCall = await prisma.call.update({ where: { id: callRecord.id }, data: { providerCallId: originate.providerCallId } })
+    logger.info(originate.enabled ? 'Asterisk AMI originate queued for ad-hoc call' : 'AMI disabled; ad-hoc provider placeholder created')
+    return { callSid: originate.providerCallId, callId: updatedCall.id, contactId: contact.id, phone, providerCallId: originate.providerCallId, callerId: outboundCallerId, dynamicCallerIdUsed: Boolean(dynamicCallerId), backendOriginate: originate.enabled, agentExtension }
+  } catch (err) {
+    await prisma.call.update({ where: { id: callRecord.id }, data: { status: 'FAILED', endedAt: new Date() } }).catch(() => undefined)
+    throw err
+  }
 }
 
 export const hangupCall = async (_providerCallId: string) => {
