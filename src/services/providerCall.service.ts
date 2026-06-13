@@ -7,7 +7,9 @@ import { originateOutboundCall } from './asteriskAmi.service'
 const DEFAULT_CALLER_ID = process.env.DEFAULT_OUTBOUND_CALLER_ID || ''
 
 type Actor = { id: number; email?: string; role?: string }
-type CallOptions = { callerIdId?: number | string | null }
+type CallOptions = { callerIdId?: number | string | null; agentExtension?: string | null }
+
+const sanitizeAgentExtension = (value?: string | null) => value ? value.replace(/[^0-9A-Za-z_.-]/g, '').trim() : ''
 
 export const initiateCall = async (contactId: number, campaignId: number, actorOrAgentId?: Actor | number, options: CallOptions = {}) => {
   const actor = typeof actorOrAgentId === 'object' ? actorOrAgentId : undefined
@@ -20,6 +22,7 @@ export const initiateCall = async (contactId: number, campaignId: number, actorO
 
   const dynamicCallerId = actor ? await resolveDynamicCallerIdForCall(actor, options.callerIdId) : null
   const outboundCallerId = dynamicCallerId || campaign.callerId || DEFAULT_CALLER_ID || null
+  const agentExtension = sanitizeAgentExtension(options.agentExtension)
 
   const callRecord = await prisma.call.create({
     data: {
@@ -42,14 +45,15 @@ export const initiateCall = async (contactId: number, campaignId: number, actorO
       callId: callRecord.id,
       campaignId,
       agentId,
+      agentExtension,
       dynamicCallerIdUsed: Boolean(dynamicCallerId),
     })
     const updatedCall = await prisma.call.update({ where: { id: callRecord.id }, data: { providerCallId: originate.providerCallId } })
     await prisma.contact.update({ where: { id: contactId }, data: { status: 'CALLING', lastCalledAt: new Date() } })
     logger.info(originate.enabled ? 'Asterisk AMI originate queued for campaign/contact call' : 'AMI disabled; provider placeholder created')
     return {
-      callRecord: { ...updatedCall, callerId: outboundCallerId, dynamicCallerIdUsed: Boolean(dynamicCallerId), backendOriginate: originate.enabled },
-      providerCall: { id: originate.providerCallId, to: contact.phone, from: outboundCallerId, backendOriginate: originate.enabled },
+      callRecord: { ...updatedCall, callerId: outboundCallerId, dynamicCallerIdUsed: Boolean(dynamicCallerId), backendOriginate: originate.enabled, agentExtension },
+      providerCall: { id: originate.providerCallId, to: contact.phone, from: outboundCallerId, backendOriginate: originate.enabled, agentExtension },
     }
   } catch (err) {
     await prisma.call.update({ where: { id: callRecord.id }, data: { status: 'FAILED', endedAt: new Date() } }).catch(() => undefined)
@@ -69,6 +73,7 @@ export const initiateAdhocCall = async (phone: string, actorOrAgentId: Actor | n
 
   const dynamicCallerId = actor ? await resolveDynamicCallerIdForCall(actor, options.callerIdId) : null
   const outboundCallerId = dynamicCallerId || DEFAULT_CALLER_ID || campaign.callerId || null
+  const agentExtension = sanitizeAgentExtension(options.agentExtension)
 
   const callRecord = await prisma.call.create({
     data: {
@@ -91,11 +96,12 @@ export const initiateAdhocCall = async (phone: string, actorOrAgentId: Actor | n
       callId: callRecord.id,
       campaignId: campaign.id,
       agentId,
+      agentExtension,
       dynamicCallerIdUsed: Boolean(dynamicCallerId),
     })
     const updatedCall = await prisma.call.update({ where: { id: callRecord.id }, data: { providerCallId: originate.providerCallId } })
     logger.info(originate.enabled ? 'Asterisk AMI originate queued for ad-hoc call' : 'AMI disabled; ad-hoc provider placeholder created')
-    return { callSid: originate.providerCallId, callId: updatedCall.id, contactId: contact.id, phone, providerCallId: originate.providerCallId, callerId: outboundCallerId, dynamicCallerIdUsed: Boolean(dynamicCallerId), backendOriginate: originate.enabled }
+    return { callSid: originate.providerCallId, callId: updatedCall.id, contactId: contact.id, phone, providerCallId: originate.providerCallId, callerId: outboundCallerId, dynamicCallerIdUsed: Boolean(dynamicCallerId), backendOriginate: originate.enabled, agentExtension }
   } catch (err) {
     await prisma.call.update({ where: { id: callRecord.id }, data: { status: 'FAILED', endedAt: new Date() } }).catch(() => undefined)
     throw err
