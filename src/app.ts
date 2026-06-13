@@ -10,6 +10,7 @@ import authRoutes     from './routes/auth'
 import agentRoutes    from './routes/teamAgents.routes'
 import campaignRoutes from './routes/campaigns'
 import contactRoutes  from './routes/contacts'
+import dialerAmiRoutes from './routes/dialerAmi.routes'
 import dialerRoutes   from './routes/dialer'
 import callRoutes     from './routes/call.routes'
 import dncRoutes      from './routes/dnc'
@@ -99,6 +100,7 @@ app.use('/api/agents',    agentRoutes)
 app.use('/api/campaigns', campaignRoutes)
 app.use('/api/contacts',  contactRoutes)
 app.use('/api/calls',     callRoutes)
+app.use('/api/dialer',    dialerAmiRoutes)
 app.use('/api/dialer',    dialerRoutes)
 app.use('/api/dnc',       dncRoutes)
 app.use('/api/callbacks', callbackRoutes)
