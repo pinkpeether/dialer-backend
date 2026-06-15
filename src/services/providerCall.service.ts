@@ -3,7 +3,6 @@ import { AppError } from '../middleware/errorHandler'
 import logger from '../utils/logger'
 import { resolveDynamicCallerIdForCall } from './dynamicCallerIdRuntime.service'
 import { hangupBackendOriginatedCall, originateOutboundCall } from './asteriskAmi.service'
-import { getAsteriskBridgeLifecycleSnapshot } from './asteriskBridgeLifecycle.service'
 
 const DEFAULT_CALLER_ID = process.env.DEFAULT_OUTBOUND_CALLER_ID || ''
 
@@ -117,49 +116,22 @@ export const hangupBackendOriginated = async (input: { callId?: number | string 
       ? await prisma.call.findFirst({ where: { providerCallId: String(input.providerCallId) } }).catch(() => null)
       : null
 
-  const lifecycleInput = {
+  const result = await hangupBackendOriginatedCall({
     callId: callRecord?.id || input.callId,
     providerCallId: callRecord?.providerCallId || input.providerCallId,
     phone: input.phone || callRecord?.remoteNumber || null,
     agentExtension: input.agentExtension || null,
-  }
-
-  const lifecycle = await getAsteriskBridgeLifecycleSnapshot(lifecycleInput).catch(err => {
-    logger.warn('Asterisk bridge lifecycle snapshot failed before hangup: ' + (err instanceof Error ? err.message : String(err)))
-    return null
   })
 
-  const result = await hangupBackendOriginatedCall(lifecycleInput)
-
   if (callRecord?.id) {
-    const endedAt = new Date()
-    const actualDuration = lifecycle?.bridgeDurationSeconds ?? null
-    const updateData: {
-      endedAt: Date
-      connectedAt?: Date
-      duration?: number
-      status?: 'COMPLETED' | 'NO_ANSWER'
-    } = { endedAt }
-
-    if (actualDuration !== null) {
-      updateData.duration = Math.max(0, actualDuration)
-
-      if (actualDuration > 0) {
-        updateData.connectedAt = new Date(endedAt.getTime() - actualDuration * 1000)
-        updateData.status = 'COMPLETED'
-      } else {
-        updateData.status = 'NO_ANSWER'
-      }
-    }
-
     await prisma.call.update({
       where: { id: callRecord.id },
-      data: updateData,
+      data: { endedAt: new Date() },
     }).catch(() => undefined)
   }
 
   logger.info('Backend-originated PTDT-Dialer hangup requested')
-  return { ...result, lifecycle }
+  return result
 }
 
 export const hangupCall = async (providerCallId: string) => {
