@@ -226,7 +226,7 @@ function sendAmiUntil(actions: string[], done: (buffer: string) => boolean, time
 }
 
 function sendAmiFire(actions: string[], timeoutMs = 1200): Promise<string> {
-  return sendAmiUntil(actions, buffer => buffer.includes('Response: Goodbye'), timeoutMs)
+  return sendAmiUntil([...actions, logoffAction()], buffer => buffer.includes('Response: Goodbye') || buffer.includes('Response: Success'), timeoutMs)
 }
 
 function parseConciseChannels(raw: string): ConciseChannel[] {
