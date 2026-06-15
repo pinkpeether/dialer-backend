@@ -261,7 +261,8 @@ export const updateCallDisposition = async (
   const callbackAgentId = existing.agentId ?? user?.id
   const endedAt = existing.endedAt ?? new Date()
   const durationStart = existing.connectedAt ?? existing.startedAt
-  const duration = existing.duration ?? Math.max(0, Math.round((endedAt.getTime() - durationStart.getTime()) / 1000))
+  const computedDuration = Math.max(0, Math.round((endedAt.getTime() - durationStart.getTime()) / 1000))
+  const duration = existing.duration && existing.duration > 0 ? existing.duration : computedDuration
 
   const call = await prisma.$transaction(async (tx) => {
     const call = await tx.call.update({
@@ -387,7 +388,8 @@ export const markCallEnded = async (
 
   const endedAt = existing.endedAt ?? endedAtInput ?? new Date()
   const durationStart = existing.connectedAt ?? existing.startedAt
-  const duration = existing.duration ?? Math.max(0, Math.round((endedAt.getTime() - durationStart.getTime()) / 1000))
+  const computedDuration = Math.max(0, Math.round((endedAt.getTime() - durationStart.getTime()) / 1000))
+  const duration = existing.duration && existing.duration > 0 ? existing.duration : computedDuration
 
   const call = await prisma.call.update({
     where: { id },

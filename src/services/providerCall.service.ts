@@ -124,9 +124,29 @@ export const hangupBackendOriginated = async (input: { callId?: number | string 
   })
 
   if (callRecord?.id) {
+    const endedAt = new Date()
+    const fullCallRecord = await prisma.call.findUnique({
+      where: { id: callRecord.id },
+      select: {
+        id: true,
+        startedAt: true,
+        connectedAt: true,
+        duration: true,
+      },
+    }).catch(() => null)
+
+    const durationStart = fullCallRecord?.connectedAt || fullCallRecord?.startedAt
+    const computedDuration = durationStart
+      ? Math.max(0, Math.round((endedAt.getTime() - durationStart.getTime()) / 1000))
+      : 0
+
     await prisma.call.update({
       where: { id: callRecord.id },
-      data: { endedAt: new Date() },
+      data: {
+        endedAt,
+        duration: fullCallRecord?.duration && fullCallRecord.duration > 0 ? fullCallRecord.duration : computedDuration,
+        status: computedDuration > 0 ? 'COMPLETED' : 'NO_ANSWER',
+      },
     }).catch(() => undefined)
   }
 

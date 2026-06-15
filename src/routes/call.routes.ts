@@ -10,32 +10,32 @@ router.use(authenticate)
 
 router.get(
   '/',
-  authorize('ADMIN', 'SUPERVISOR', 'AGENT'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'CUSTOMER_ADMIN', 'MANAGER', 'AGENT'),
   CallController.listCalls
 )
 
 router.get(
   '/:id',
-  authorize('ADMIN', 'SUPERVISOR', 'AGENT'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'CUSTOMER_ADMIN', 'MANAGER', 'AGENT'),
   CallController.getCallById
 )
 
 router.patch(
   '/:id/disposition',
-  authorize('ADMIN', 'SUPERVISOR', 'AGENT'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'CUSTOMER_ADMIN', 'MANAGER', 'AGENT'),
   validate(updateDispositionSchema),
   CallController.updateDisposition
 )
 
 router.patch(
   '/:id/end',
-  authorize('ADMIN', 'SUPERVISOR', 'AGENT'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'CUSTOMER_ADMIN', 'MANAGER', 'AGENT'),
   CallController.endCall
 )
 
 router.post(
   '/',
-  authorize('ADMIN', 'SUPERVISOR', 'AGENT'),
+  authorize('SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'CUSTOMER_ADMIN', 'MANAGER', 'AGENT'),
   CallController.createCall
 )
 
