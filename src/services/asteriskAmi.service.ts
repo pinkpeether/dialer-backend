@@ -57,7 +57,9 @@ type ConciseChannel = {
   data: string
   callerIdNum: string
   accountCode: string
-  bridgedTo: string
+  duration: string
+  bridgedChannel: string
+  bridgedUniqueId: string
   raw: string
 }
 
@@ -141,12 +143,14 @@ function sendAmi(actions: string[]): Promise<string> {
     }, AMI_TIMEOUT_MS)
 
     socket.setEncoding('utf8')
+
     socket.on('data', chunk => {
       buffer += chunk
       if (!settled && (buffer.includes('Message: Originate successfully queued') || buffer.includes('Response: Error'))) {
         settled = true
         clearTimeout(timer)
         socket.end(logoffAction())
+
         if (buffer.includes('Response: Error')) {
           reject(new AppError(buffer.split('\r\n').find(line => line.startsWith('Message:')) || 'Asterisk AMI originate failed', 502))
         } else {
@@ -154,13 +158,16 @@ function sendAmi(actions: string[]): Promise<string> {
         }
       }
     })
+
     socket.on('error', err => {
       if (settled) return
       settled = true
       clearTimeout(timer)
       reject(err)
     })
+
     socket.on('connect', () => actions.forEach(action => socket.write(action)))
+
     socket.on('close', () => {
       clearTimeout(timer)
       if (!settled) resolve(buffer)
@@ -182,8 +189,10 @@ function sendAmiUntil(actions: string[], done: (buffer: string) => boolean, time
     }, timeoutMs)
 
     socket.setEncoding('utf8')
+
     socket.on('data', chunk => {
       buffer += chunk
+
       if (!settled && buffer.includes('Response: Error')) {
         settled = true
         clearTimeout(timer)
@@ -199,13 +208,16 @@ function sendAmiUntil(actions: string[], done: (buffer: string) => boolean, time
         resolve(buffer)
       }
     })
+
     socket.on('error', err => {
       if (settled) return
       settled = true
       clearTimeout(timer)
       reject(err)
     })
+
     socket.on('connect', () => actions.forEach(action => socket.write(action)))
+
     socket.on('close', () => {
       clearTimeout(timer)
       if (!settled) resolve(buffer)
@@ -233,7 +245,9 @@ function parseConciseChannels(raw: string): ConciseChannel[] {
         data: parts[6] || '',
         callerIdNum: parts[7] || '',
         accountCode: parts[8] || '',
-        bridgedTo: parts[12] || '',
+        duration: parts[10] || '',
+        bridgedChannel: parts[11] || '',
+        bridgedUniqueId: parts[12] || '',
         raw: line,
       }
     })
@@ -247,8 +261,8 @@ async function listConciseChannels() {
 
   const response = await sendAmiUntil(
     [loginAction(), commandAction],
-    buffer => buffer.includes('--END COMMAND--') || buffer.includes('Response: Follows'),
-    Math.max(AMI_TIMEOUT_MS, 1500),
+    buffer => buffer.includes('--END COMMAND--'),
+    Math.max(AMI_TIMEOUT_MS, 1800),
   )
 
   return parseConciseChannels(response)
@@ -269,7 +283,9 @@ function findHangupTargets(channels: ConciseChannel[], input: AmiHangupInput) {
       item.data,
       item.callerIdNum,
       item.accountCode,
-      item.bridgedTo,
+      item.duration,
+      item.bridgedChannel,
+      item.bridgedUniqueId,
       item.raw,
     ].join(' ')
 
@@ -278,29 +294,54 @@ function findHangupTargets(channels: ConciseChannel[], input: AmiHangupInput) {
     const matchesAccount = Boolean(ORIGINATE_ACCOUNT && blob.includes(ORIGINATE_ACCOUNT))
     const matchesCallId = Boolean(callId && blob.includes(callId))
     const matchesProvider = Boolean(providerCallId && blob.includes(providerCallId))
-    const matchesAgent = Boolean(agentExtension && (item.channel.includes('/' + agentExtension + '-') || item.exten === agentExtension))
+    const matchesAgent = Boolean(agentExtension && (
+      item.channel.includes('/' + agentExtension + '-') ||
+      item.exten === agentExtension ||
+      item.data.includes('/' + agentExtension)
+    ))
 
-    /*
-      Safety rule:
-      - Prefer exact customer phone leg.
-      - Also allow PTDT account/call markers if Asterisk exposes them.
-      - Agent extension fallback is last resort for first-leg cleanup.
-    */
     return matchesPhone || matchesAccount || matchesCallId || matchesProvider || matchesAgent
   })
 
-  return Array.from(new Set(matched.map(item => item.channel).filter(Boolean)))
+  const targetSet = new Set(matched.map(item => item.channel).filter(Boolean))
+
+  /*
+    Connected calls are bridged:
+    - If agent leg matched, include PSTN bridged leg.
+    - If PSTN leg matched, include agent bridged leg.
+  */
+  let changed = true
+  while (changed) {
+    changed = false
+
+    for (const item of channels) {
+      if (item.channel && item.bridgedChannel && targetSet.has(item.channel) && !targetSet.has(item.bridgedChannel)) {
+        targetSet.add(item.bridgedChannel)
+        changed = true
+      }
+
+      if (item.channel && item.bridgedChannel && targetSet.has(item.bridgedChannel) && !targetSet.has(item.channel)) {
+        targetSet.add(item.channel)
+        changed = true
+      }
+    }
+  }
+
+  return Array.from(targetSet)
 }
 
 export async function originateOutboundCall(input: AmiOriginateInput): Promise<AmiOriginateResult> {
   const providerCallId = actionId()
+
   if (!AMI_ENABLED) {
     return { enabled: false, providerCallId }
   }
+
   if (!AMI_USERNAME || !AMI_PASSWORD) throw new AppError('Asterisk AMI credentials are not configured', 500)
 
   const originate = resolveOriginate(input)
   const callerId = sanitizeCallerId(input.callerId)
+
   const variableParts = [
     'PTDT_CALL_ID=' + String(input.callId || ''),
     'PTDT_CAMPAIGN_ID=' + String(input.campaignId || ''),
