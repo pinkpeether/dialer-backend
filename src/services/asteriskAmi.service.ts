@@ -228,11 +228,43 @@ function sendAmiUntil(actions: string[], done: (buffer: string) => boolean, time
 
 function sendAmiFire(actions: string[], timeoutMs = 1800): Promise<string> {
   /*
-    Include Logoff in the original action batch so AMI returns Goodbye quickly
-    after processing all Hangup actions. Without this, the HTTP request may wait
-    until timeout even though Asterisk already received the hangup actions.
+    Hangup is best-effort. Asterisk may return Response: Error for a channel
+    that already disappeared, but that must not turn the HTTP call into 502.
   */
-  return sendAmiUntil([...actions, logoffAction()], buffer => buffer.includes('Response: Goodbye'), timeoutMs)
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host: AMI_HOST, port: AMI_PORT })
+    let buffer = ''
+    let settled = false
+
+    const finish = (extra = '') => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      socket.destroy()
+      resolve([buffer, extra].filter(Boolean).join('\n'))
+    }
+
+    const timer = setTimeout(() => finish('AMI hangup best-effort timeout'), timeoutMs)
+
+    socket.setEncoding('utf8')
+
+    socket.on('data', chunk => {
+      buffer += chunk
+      if (buffer.includes('Response: Goodbye')) {
+        finish()
+      }
+    })
+
+    socket.on('error', err => {
+      finish('AMI socket error during hangup: ' + (err instanceof Error ? err.message : String(err)))
+    })
+
+    socket.on('connect', () => {
+      ;[...actions, logoffAction()].forEach(action => socket.write(action))
+    })
+
+    socket.on('close', () => finish())
+  })
 }
 
 function parseConciseChannels(raw: string): ConciseChannel[] {
@@ -302,6 +334,7 @@ function findHangupTargets(channels: ConciseChannel[], input: AmiHangupInput) {
     ].join(' ')
 
     const blobDigits = digitsOnly(blob)
+
     const matchesPhone = Boolean(phoneDigits && blobDigits.includes(phoneDigits))
     const matchesCallId = Boolean(callId && blob.includes(callId))
     const matchesProvider = Boolean(providerCallId && blob.includes(providerCallId))
@@ -310,7 +343,10 @@ function findHangupTargets(channels: ConciseChannel[], input: AmiHangupInput) {
       item.exten === agentExtension ||
       item.data.includes('/' + agentExtension)
     ))
-    const matchesTrunkLeg = Boolean(phoneDigits && TRUNK_NAME && item.channel.includes(TRUNK_NAME) && blobDigits.includes(phoneDigits))
+    const matchesTrunkLeg = Boolean(TRUNK_NAME && item.channel.includes(TRUNK_NAME) && (
+      matchesPhone ||
+      blob.includes(ORIGINATE_ACCOUNT)
+    ))
     const weakAccountMatch = !hasStrongInput && Boolean(ORIGINATE_ACCOUNT && blob.includes(ORIGINATE_ACCOUNT))
 
     return matchesPhone || matchesCallId || matchesProvider || matchesAgent || matchesTrunkLeg || weakAccountMatch
@@ -319,19 +355,48 @@ function findHangupTargets(channels: ConciseChannel[], input: AmiHangupInput) {
   const bridgeIds = new Set(matched.map(item => item.bridgeId).filter(Boolean))
   const targetSet = new Set(matched.map(item => item.channel).filter(Boolean))
 
-  /*
-    Connected calls share a bridge id. Once any leg is matched, hang up every
-    real channel inside the same bridge. Do NOT add the bridge id itself as a
-    channel target.
-  */
+  // Connected calls share bridge id. Expand any matched leg to all real channels in same bridge.
   channels.forEach(item => {
     if (item.channel && item.bridgeId && bridgeIds.has(item.bridgeId)) {
       targetSet.add(item.channel)
     }
   })
 
-  return Array.from(targetSet)
+  /*
+    Last-resort safe fallback for this backend-originated call:
+    if exact matching found nothing but we have agent/destination input, kill
+    channels that are clearly PTDT account-code/current agent/current trunk.
+  */
+  if (targetSet.size === 0 && hasStrongInput) {
+    const fallbackBridgeIds = new Set<string>()
+
+    channels.forEach(item => {
+      const rawDigits = digitsOnly(item.raw)
+      const isAgentLeg = Boolean(agentExtension && (
+        item.channel.includes('/' + agentExtension + '-') ||
+        item.exten === agentExtension ||
+        item.data.includes('/' + agentExtension)
+      ))
+      const isDestinationLeg = Boolean(phoneDigits && rawDigits.includes(phoneDigits))
+      const isPtdtTrunkLeg = Boolean(TRUNK_NAME && item.channel.includes(TRUNK_NAME) && item.raw.includes(ORIGINATE_ACCOUNT))
+      const isPtdtContextLeg = item.context === TWO_LEG_CONTEXT && item.raw.includes(ORIGINATE_ACCOUNT)
+
+      if (item.channel && (isAgentLeg || isDestinationLeg || isPtdtTrunkLeg || isPtdtContextLeg)) {
+        targetSet.add(item.channel)
+        if (item.bridgeId) fallbackBridgeIds.add(item.bridgeId)
+      }
+    })
+
+    channels.forEach(item => {
+      if (item.channel && item.bridgeId && fallbackBridgeIds.has(item.bridgeId)) {
+        targetSet.add(item.channel)
+      }
+    })
+  }
+
+  return Array.from(targetSet).filter(channel => channel.startsWith('PJSIP/') || channel.startsWith('Local/'))
 }
+
 
 export async function originateOutboundCall(input: AmiOriginateInput): Promise<AmiOriginateResult> {
   const providerCallId = actionId()
@@ -377,35 +442,41 @@ export async function hangupBackendOriginatedCall(input: AmiHangupInput): Promis
   if (!AMI_ENABLED) return { enabled: false, channels: [] }
   if (!AMI_USERNAME || !AMI_PASSWORD) throw new AppError('Asterisk AMI credentials are not configured', 500)
 
-  const firstChannels = await listConciseChannels()
-  const firstTargets = findHangupTargets(firstChannels, input)
-
-  if (firstTargets.length === 0) {
-    logger.info('Asterisk AMI hangup found no matching PTDT-Dialer channels')
-    return { enabled: true, channels: [] }
-  }
-
   const makeHangupActions = (targets: string[]) => targets.map(channel => amiCommand([
     'Action: Hangup',
     'Channel: ' + channel,
     'Cause: 16',
   ]))
 
+  const firstChannels = await listConciseChannels()
+  const firstTargets = findHangupTargets(firstChannels, input)
+
+  if (firstTargets.length === 0) {
+    const noMatch = 'NO_MATCH: no PTDT-Dialer AMI channels matched. Active channels:\n' +
+      firstChannels.map(item => item.raw).join('\n').slice(0, 2500)
+
+    logger.info('Asterisk AMI hangup found no matching PTDT-Dialer channels')
+    return { enabled: true, channels: [], response: noMatch }
+  }
+
   const firstResponse = await sendAmiFire([loginAction(), ...makeHangupActions(firstTargets)])
 
-  /*
-    A connected bridge may reshuffle for a split second after the first hangup.
-    Re-scan once and send a second hangup only for any remaining matching real
-    channel. This is intentionally short to avoid UI blocking.
-  */
-  await sleep(350)
+  await sleep(300)
+
   const secondChannels = await listConciseChannels().catch(() => [])
   const secondTargets = findHangupTargets(secondChannels, input).filter(channel => !firstTargets.includes(channel))
+
   const secondResponse = secondTargets.length > 0
-    ? await sendAmiFire([loginAction(), ...makeHangupActions(secondTargets)]).catch(err => String(err instanceof Error ? err.message : err))
+    ? await sendAmiFire([loginAction(), ...makeHangupActions(secondTargets)])
     : ''
 
   const targets = Array.from(new Set([...firstTargets, ...secondTargets]))
+
   logger.info('Asterisk AMI hangup requested for PTDT-Dialer channels: ' + targets.join(', '))
-  return { enabled: true, channels: targets, response: [firstResponse, secondResponse].filter(Boolean).join('\n---SECOND_PASS---\n') }
+  return {
+    enabled: true,
+    channels: targets,
+    response: [firstResponse, secondResponse].filter(Boolean).join('\n---SECOND_PASS---\n'),
+  }
 }
+
