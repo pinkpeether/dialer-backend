@@ -115,7 +115,6 @@ const findCallForIngest = async (req: Request, recordingfile: string) => {
 
   const existingRecording = await prisma.call.findFirst({
     where: {
-      source: 'sip',
       recordingSid: recordingfile,
       recordingUrl: { not: null },
     },
@@ -176,7 +175,6 @@ const findCallForIngest = async (req: Request, recordingfile: string) => {
 
     const candidates = await prisma.call.findMany({
       where: {
-        source: 'sip',
         ...(options.unrecordedOnly ? { recordingUrl: null } : {}),
         startedAt: {
           gte: from,
