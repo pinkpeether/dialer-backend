@@ -37,6 +37,7 @@ import campaignManagementProRoutes from './routes/campaignManagementPro.routes'
 import agentManagementRoutes from './routes/agentManagement.routes'
 import callControlRoutes from './routes/callControl.routes'
 import liveAiRoutes from './routes/liveAi.routes'
+import aiCallsRoutes from './routes/aiCalls.routes'
 import liveMonitoringAdvancedRoutes from './routes/liveMonitoringAdvanced.routes'
 import uiUxProRoutes from './routes/uiUxPro.routes'
 import securityAdminProRoutes from './routes/securityAdminPro.routes'
@@ -122,6 +123,7 @@ app.use('/api/recording-storage-pro', recordingStorageProRoutes)
 app.use('/api/contact-management-pro', contactManagementProRoutes)
 app.use('/api/call-controls', callControlRoutes)
 app.use('/api/live-ai', liveAiRoutes)
+app.use('/api/ai-calls', aiCallsRoutes)
 app.use('/api/agent-management', agentManagementRoutes)
 app.use('/api/live-monitoring-advanced', liveMonitoringAdvancedRoutes)
 app.use('/api/campaign-management-pro', campaignManagementProRoutes)
