@@ -1,5 +1,9 @@
 import { Request, Response, NextFunction } from 'express'
-import { upsertAiCallLogFromRetellWebhook } from '../services/aiCallLog.service'
+import {
+  getAiCallLogRecordById,
+  listAiCallLogRecords,
+  upsertAiCallLogFromRetellWebhook,
+} from '../services/aiCallLog.service'
 import {
   createRetellOutboundPhoneCall,
   getRetellPhoneCall,
@@ -293,3 +297,84 @@ export async function getRetellCallDebug(req: Request, res: Response, next: Next
     handleRetellError(error, res, next)
   }
 }
+
+function getIntegerQuery(value: unknown, fallback: number) {
+  const parsed = Number.parseInt(getStringField(value), 10)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function getBooleanQuery(value: unknown) {
+  const text = getStringField(value).toLowerCase()
+
+  if (text === 'true') return true
+  if (text === 'false') return false
+
+  return undefined
+}
+
+export async function listAiCallLogs(req: Request, res: Response, next: NextFunction) {
+  try {
+    const page = getIntegerQuery(req.query.page, 1)
+    const limit = getIntegerQuery(req.query.limit, 25)
+    const includeRaw = getBooleanQuery(req.query.includeRaw) === true
+
+    const result = await listAiCallLogRecords({
+      page,
+      limit,
+      search: getStringField(req.query.search) || undefined,
+      status: getStringField(req.query.status) || undefined,
+      sentiment: getStringField(req.query.sentiment) || undefined,
+      successful: getBooleanQuery(req.query.successful),
+      direction: getStringField(req.query.direction) || undefined,
+      includeRaw,
+    })
+
+    res.status(200).json({
+      success: true,
+      message: 'AI call logs fetched',
+      provider: 'retell',
+      rawIncluded: includeRaw,
+      ...result,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export async function getAiCallLog(req: Request, res: Response, next: NextFunction) {
+  try {
+    const id = Number.parseInt(getStringField(req.params.id), 10)
+    const includeRaw = getBooleanQuery(req.query.includeRaw) === true
+
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({
+        success: false,
+        message: 'AI call log id is invalid',
+        provider: 'retell',
+      })
+      return
+    }
+
+    const item = await getAiCallLogRecordById(id, includeRaw)
+
+    if (!item) {
+      res.status(404).json({
+        success: false,
+        message: 'AI call log was not found',
+        provider: 'retell',
+      })
+      return
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'AI call log fetched',
+      provider: 'retell',
+      rawIncluded: includeRaw,
+      item,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
