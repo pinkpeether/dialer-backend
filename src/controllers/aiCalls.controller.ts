@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express'
+import { upsertAiCallLogFromRetellWebhook } from '../services/aiCallLog.service'
 import {
   createRetellOutboundPhoneCall,
   getRetellPhoneCall,
@@ -227,6 +228,20 @@ export async function receiveRetellWebhook(req: Request, res: Response, next: Ne
     }
 
     const webhookSummary = summarizeRetellCall(call)
+    let storedAiCallLog = null
+    let storageError = null
+
+    if (callId && call) {
+      try {
+        storedAiCallLog = await upsertAiCallLogFromRetellWebhook({
+          event,
+          call,
+          rawPayload: isRecord(req.body) ? req.body : {},
+        })
+      } catch (error) {
+        storageError = error instanceof Error ? error.message : 'AI call log storage failed'
+      }
+    }
 
     console.log('[retell-webhook] Received Retell webhook', {
       event,
@@ -249,8 +264,10 @@ export async function receiveRetellWebhook(req: Request, res: Response, next: Ne
       webhookCall: webhookSummary,
       fetchedCall: fetchedCallSummary,
       fetchError,
-      stored: false,
-      storageMode: 'log-only-poc',
+      stored: Boolean(storedAiCallLog),
+      storageMode: 'ai-call-log',
+      storedAiCallLog,
+      storageError,
     })
   } catch (error) {
     handleRetellError(error, res, next)

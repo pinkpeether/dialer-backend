@@ -592,3 +592,40 @@ model CommercialAccountMembership {
   @@index([status])
   @@index([createdAt])
 }
+
+model AiCallLog {
+  id                    Int       @id @default(autoincrement())
+  provider              String    @default("retell")
+  providerCallId        String    @unique
+  lastEvent             String?
+  callStatus            String?
+  callType              String?
+  direction             String?
+  fromNumber            String?
+  toNumber              String?
+  agentId               String?
+  agentName             String?
+  durationMs            Int?
+  disconnectionReason   String?
+  transferDestination   String?
+  transcriptText        String?   @db.Text
+  transcriptLength      Int       @default(0)
+  recordingUrl          String?   @db.Text
+  hasRecordingUrl       Boolean   @default(false)
+  callSummary           String?   @db.Text
+  userSentiment         String?
+  callSuccessful        Boolean?
+  inVoicemail           Boolean?
+  callAnalysis          Json?
+  rawPayload            Json?
+  lastWebhookAt         DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([provider])
+  @@index([lastEvent])
+  @@index([callStatus])
+  @@index([direction])
+  @@index([toNumber])
+  @@index([createdAt])
+}
