@@ -173,3 +173,120 @@ export async function upsertAiCallLogFromRetellWebhook(input: {
     },
   })
 }
+
+export interface AiCallLogListInput {
+  page: number
+  limit: number
+  search?: string
+  status?: string
+  sentiment?: string
+  successful?: boolean
+  direction?: string
+  includeRaw?: boolean
+}
+
+function buildAiCallLogWhere(input: AiCallLogListInput): Prisma.AiCallLogWhereInput {
+  const where: Prisma.AiCallLogWhereInput = {}
+
+  if (input.status) {
+    where.callStatus = input.status
+  }
+
+  if (input.sentiment) {
+    where.userSentiment = input.sentiment
+  }
+
+  if (input.successful !== undefined) {
+    where.callSuccessful = input.successful
+  }
+
+  if (input.direction) {
+    where.direction = input.direction
+  }
+
+  if (input.search) {
+    where.OR = [
+      { providerCallId: { contains: input.search, mode: 'insensitive' } },
+      { fromNumber: { contains: input.search, mode: 'insensitive' } },
+      { toNumber: { contains: input.search, mode: 'insensitive' } },
+      { agentName: { contains: input.search, mode: 'insensitive' } },
+      { callSummary: { contains: input.search, mode: 'insensitive' } },
+    ]
+  }
+
+  return where
+}
+
+const listSelect = {
+  id: true,
+  provider: true,
+  providerCallId: true,
+  lastEvent: true,
+  callStatus: true,
+  callType: true,
+  direction: true,
+  fromNumber: true,
+  toNumber: true,
+  agentName: true,
+  durationMs: true,
+  disconnectionReason: true,
+  transcriptLength: true,
+  hasRecordingUrl: true,
+  callSummary: true,
+  userSentiment: true,
+  callSuccessful: true,
+  inVoicemail: true,
+  lastWebhookAt: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.AiCallLogSelect
+
+const detailSelect = {
+  ...listSelect,
+  agentId: true,
+  transferDestination: true,
+  transcriptText: true,
+  recordingUrl: true,
+  callAnalysis: true,
+} satisfies Prisma.AiCallLogSelect
+
+export async function listAiCallLogRecords(input: AiCallLogListInput) {
+  const page = Math.max(1, input.page)
+  const limit = Math.min(Math.max(1, input.limit), 100)
+  const skip = (page - 1) * limit
+  const where = buildAiCallLogWhere(input)
+
+  const [items, total] = await Promise.all([
+    prisma.aiCallLog.findMany({
+      where,
+      select: input.includeRaw ? { ...listSelect, rawPayload: true } : listSelect,
+      orderBy: {
+        createdAt: 'desc',
+      },
+      skip,
+      take: limit,
+    }),
+    prisma.aiCallLog.count({ where }),
+  ])
+
+  return {
+    items,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+      hasNextPage: page * limit < total,
+      hasPreviousPage: page > 1,
+    },
+  }
+}
+
+export async function getAiCallLogRecordById(id: number, includeRaw = false) {
+  return prisma.aiCallLog.findUnique({
+    where: {
+      id,
+    },
+    select: includeRaw ? { ...detailSelect, rawPayload: true } : detailSelect,
+  })
+}
