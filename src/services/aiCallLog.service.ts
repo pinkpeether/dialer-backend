@@ -174,6 +174,98 @@ export async function upsertAiCallLogFromRetellWebhook(input: {
   })
 }
 
+function maskPhoneForAudit(phoneNumber?: string) {
+  if (!phoneNumber) return null
+  return phoneNumber.replace(/^(\+\d{2})(\d+)(\d{3})$/, (_match, prefix, middle, suffix) => {
+    return `${prefix}${'*'.repeat(String(middle).length)}${suffix}`
+  })
+}
+
+export async function createAiCallLogFromOutboundRequest(input: {
+  call: RetellPhoneCallResponse | Record<string, unknown>
+  request: {
+    actorId?: number
+    toNumber: string
+    fromNumber: string
+    transferDestination: string
+    assistantId?: string
+    source?: string
+  }
+}) {
+  const providerCallId = getString(input.call.call_id)
+
+  if (!providerCallId) {
+    return null
+  }
+
+  const requestMetadata = {
+    source: input.request.source || 'ptdt-dialer',
+    requestedBy: input.request.actorId ?? null,
+    assistantId: input.request.assistantId || 'default',
+    toNumberMasked: maskPhoneForAudit(input.request.toNumber),
+    fromNumberMasked: maskPhoneForAudit(input.request.fromNumber),
+    transferDestinationMasked: maskPhoneForAudit(input.request.transferDestination),
+  }
+
+  const callWithRequestData: Record<string, unknown> = {
+    ...input.call,
+    call_id: providerCallId,
+    call_type: getString(input.call.call_type) || 'phone_call',
+    direction: getString(input.call.direction) || 'outbound',
+    from_number: getString(input.call.from_number) || input.request.fromNumber,
+    to_number: getString(input.call.to_number) || input.request.toNumber,
+    transfer_destination: getString(input.call.transfer_destination) || input.request.transferDestination,
+  }
+
+  const rawPayload = {
+    outboundRequest: requestMetadata,
+  }
+
+  const createData = buildCreateData('outbound_started', callWithRequestData, rawPayload)
+  const updateData = buildUpdateData('outbound_started', callWithRequestData, rawPayload)
+
+  createData.transferDestination = input.request.transferDestination
+  updateData.transferDestination = input.request.transferDestination
+
+  const record = await prisma.aiCallLog.upsert({
+    where: {
+      providerCallId,
+    },
+    create: createData,
+    update: updateData,
+    select: {
+      id: true,
+      providerCallId: true,
+      lastEvent: true,
+      callStatus: true,
+      direction: true,
+      toNumber: true,
+      transferDestination: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  })
+
+  try {
+    await prisma.auditLog.create({
+      data: {
+        actorId: input.request.actorId ?? null,
+        action: 'AI_CALL_STARTED',
+        entity: 'AI_CALL',
+        entityId: String(record.id),
+        metadata: requestMetadata as Prisma.InputJsonValue,
+      },
+    })
+  } catch (error) {
+    console.warn('[ai-call-outbound] Audit log write failed', {
+      aiCallLogId: record.id,
+      error: error instanceof Error ? error.message : 'Unknown audit error',
+    })
+  }
+
+  return record
+}
+
 export interface AiCallLogListInput {
   page: number
   limit: number
