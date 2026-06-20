@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express'
 import {
+  createAiCallLogFromOutboundRequest,
   getAiCallLogRecordById,
   listAiCallLogRecords,
   upsertAiCallLogFromRetellWebhook,
@@ -156,6 +157,106 @@ function summarizeRetellCall(call: RetellPhoneCallResponse | Record<string, unkn
   }
 }
 
+const E164_PHONE_REGEX = /^\+[1-9]\d{7,14}$/
+const SAFE_ASSISTANT_ID_REGEX = /^[A-Za-z0-9_-]{1,120}$/
+
+type AiCallRequestWithUser = Request & {
+  user?: {
+    id?: number
+    email?: string
+    role?: string
+  }
+}
+
+function parseCsvEnv(name: string) {
+  return (process.env[name] || '')
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean)
+}
+
+function assertE164Phone(value: string, label: string) {
+  if (!E164_PHONE_REGEX.test(value)) {
+    throw new RetellServiceError(`${label} must be in E.164 format, for example +15512943079`, 400)
+  }
+}
+
+function assertAiOutboundEnabled() {
+  if (process.env.AI_OUTBOUND_CALLS_ENABLED !== 'true') {
+    throw new RetellServiceError('AI outbound calls are disabled', 403)
+  }
+}
+
+function resolveOutboundFromNumber(inputFromNumber: string) {
+  const defaultFromNumber = getStringField(process.env.RETELL_FROM_NUMBER)
+  const fromNumber = inputFromNumber || defaultFromNumber
+
+  if (!fromNumber) {
+    throw new RetellServiceError('Caller ID is not configured', 500)
+  }
+
+  assertE164Phone(fromNumber, 'Caller ID')
+
+  const allowedFromNumbers = parseCsvEnv('AI_OUTBOUND_ALLOWED_FROM_NUMBERS')
+
+  if (allowedFromNumbers.length > 0 && !allowedFromNumbers.includes(fromNumber)) {
+    throw new RetellServiceError('Caller ID is not allowed', 403)
+  }
+
+  if (allowedFromNumbers.length === 0 && defaultFromNumber && fromNumber !== defaultFromNumber) {
+    throw new RetellServiceError('Caller ID is not allowed', 403)
+  }
+
+  return fromNumber
+}
+
+function resolveTransferDestination(value: string) {
+  if (!value) {
+    throw new RetellServiceError('Transfer number is required', 400)
+  }
+
+  assertE164Phone(value, 'Transfer number')
+
+  const allowedTransferTargets = parseCsvEnv('AI_OUTBOUND_ALLOWED_TRANSFER_TARGETS')
+
+  if (allowedTransferTargets.length === 0) {
+    throw new RetellServiceError('AI transfer targets are not configured', 500)
+  }
+
+  if (!allowedTransferTargets.includes(value)) {
+    throw new RetellServiceError('Transfer number is not allowed', 403)
+  }
+
+  return value
+}
+
+function resolveAssistantId(value: string) {
+  if (!value || value === 'default') return 'default'
+
+  if (!SAFE_ASSISTANT_ID_REGEX.test(value)) {
+    throw new RetellServiceError('Assistant selection is invalid', 400)
+  }
+
+  return value
+}
+
+function handleAiOutboundError(error: unknown, res: Response, next: NextFunction) {
+  if (error instanceof RetellServiceError) {
+    const providerFacingFailure = Boolean(error.payload) || error.message.toLowerCase().includes('retell')
+    const statusCode = providerFacingFailure ? 502 : error.statusCode
+    const message = providerFacingFailure ? 'Unable to start AI call' : error.message
+
+    res.status(statusCode).json({
+      success: false,
+      message,
+      statusCode,
+    })
+    return
+  }
+
+  next(error)
+}
+
 function handleRetellError(error: unknown, res: Response, next: NextFunction) {
   if (error instanceof RetellServiceError) {
     res.status(error.statusCode).json({
@@ -198,6 +299,74 @@ export async function testOutboundAiCall(req: Request, res: Response, next: Next
     })
   } catch (error) {
     handleRetellError(error, res, next)
+  }
+}
+
+
+export async function startOutboundAiCall(req: Request, res: Response, next: NextFunction) {
+  try {
+    assertAiOutboundEnabled()
+
+    const actor = (req as AiCallRequestWithUser).user
+    const toNumber = getStringField(req.body?.toNumber)
+    const fromNumber = resolveOutboundFromNumber(getStringField(req.body?.fromNumber))
+    const transferDestination = resolveTransferDestination(
+      getStringField(req.body?.transferDestination) || getStringField(req.body?.transferTo),
+    )
+    const assistantId = resolveAssistantId(getStringField(req.body?.assistantId))
+
+    assertE164Phone(toNumber, 'Customer number')
+
+    const call = await createRetellOutboundPhoneCall({
+      toNumber,
+      fromNumber,
+      overrideAgentId: assistantId === 'default' ? undefined : assistantId,
+      metadata: {
+        source: 'ptdt-dialer',
+        requested_by: actor?.id ? String(actor.id) : 'unknown',
+        requested_role: actor?.role || 'unknown',
+        requested_at: new Date().toISOString(),
+      },
+      retellLlmDynamicVariables: {
+        transfer_destination: transferDestination,
+        transferDestination,
+        customer_number: toNumber,
+        from_number: fromNumber,
+      },
+    })
+
+    let storedAiCallLog = null
+
+    try {
+      storedAiCallLog = await createAiCallLogFromOutboundRequest({
+        call,
+        request: {
+          actorId: typeof actor?.id === 'number' ? actor.id : undefined,
+          toNumber,
+          fromNumber,
+          transferDestination,
+          assistantId,
+          source: 'ptdt-dialer',
+        },
+      })
+    } catch (error) {
+      console.warn('[ai-call-outbound] AI call log storage failed', {
+        error: error instanceof Error ? error.message : 'Unknown storage error',
+      })
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'AI call started',
+      callId: storedAiCallLog?.id ?? null,
+      displayCallId: storedAiCallLog?.id ? `#${storedAiCallLog.id}` : null,
+      status: getStringField(call.call_status) || 'queued',
+      toNumber: maskPhoneNumber(toNumber),
+      fromNumber: maskPhoneNumber(fromNumber),
+      transferDestination: maskPhoneNumber(transferDestination),
+    })
+  } catch (error) {
+    handleAiOutboundError(error, res, next)
   }
 }
 

@@ -4,12 +4,14 @@ import {
   getRetellCallDebug,
   listAiCallLogs,
   receiveRetellWebhook,
+  startOutboundAiCall,
   testOutboundAiCall,
 } from '../controllers/aiCalls.controller'
 import { authenticate, authorize } from '../middleware/auth'
 
 const router = Router()
 
+router.post('/outbound', authenticate, authorize('ADMIN', 'SUPERVISOR'), startOutboundAiCall)
 router.post('/test-outbound', testOutboundAiCall)
 router.post('/retell/webhook', receiveRetellWebhook)
 
