@@ -2,6 +2,7 @@ import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import logger from '../utils/logger'
 import { logAuditEvent } from './audit.service'
+import { transferBackendOriginatedCall } from './asteriskAmi.service'
 
 type Actor = {
   id: number
@@ -134,8 +135,8 @@ export const getCapabilities = () => ({
       notes: 'Hold requires a PBX, ARI, AMI, or trunk-specific live control adapter.',
     },
     transfer: {
-      status: 'NEEDS_PROVIDER',
-      notes: 'Transfer requires provider or PBX transfer control.',
+      status: 'READY',
+      notes: 'Transfer uses PBX live-call control when Asterisk AMI is enabled.',
     },
     conference: {
       status: 'NEEDS_PROVIDER',
@@ -224,9 +225,40 @@ export const runControlAction = async ({ action, payload, actor, ipAddress }: Ru
       break
     }
 
+    case 'transfer': {
+      const target =
+        safeString(payload.target) ||
+        safeString(payload.transferTo) ||
+        safeString(payload.destination) ||
+        safeString(payload.toNumber)
+
+      if (!target) throw new AppError('Transfer destination is required', 400)
+
+      const transfer = await transferBackendOriginatedCall({
+        callId,
+        providerCallId: providerCallId || null,
+        phone: safeString(call.remoteNumber) || null,
+        agentExtension: safeString(payload.agentExtension) || null,
+        target,
+      })
+
+      result = withResult(
+        normalized,
+        transfer.enabled ? 'COMPLETED' : 'NEEDS_PROVIDER_SETUP',
+        transfer.enabled ? 'Transfer requested.' : 'Transfer adapter is not enabled.',
+        {
+          callId,
+          providerCallId: providerCallId || null,
+          destinationType: transfer.targetKind,
+          context: transfer.context,
+          channelCount: transfer.channels.length,
+        }
+      )
+      break
+    }
+
     case 'hold':
     case 'resume':
-    case 'transfer':
     case 'conference':
     case 'whisper':
     case 'barge':

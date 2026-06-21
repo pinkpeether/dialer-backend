@@ -18,6 +18,10 @@ const ORIGINATE_EXTENSION_TEMPLATE = process.env.ASTERISK_ORIGINATE_EXTENSION_TE
 const ORIGINATE_PRIORITY = process.env.ASTERISK_ORIGINATE_PRIORITY || '1'
 const ORIGINATE_ACCOUNT = process.env.ASTERISK_ORIGINATE_ACCOUNT || 'ptdt-dialer'
 const TWO_LEG_CONTEXT = process.env.ASTERISK_TWO_LEG_CONTEXT || 'ptdt-dynamic-callerid'
+const TRANSFER_CONTEXT = process.env.ASTERISK_TRANSFER_CONTEXT || 'from-internal'
+const TRANSFER_INTERNAL_CONTEXT = process.env.ASTERISK_TRANSFER_INTERNAL_CONTEXT || TRANSFER_CONTEXT
+const TRANSFER_EXTERNAL_PREFIX = process.env.ASTERISK_TRANSFER_EXTERNAL_PREFIX || ''
+const TRANSFER_PRIORITY = process.env.ASTERISK_TRANSFER_PRIORITY || '1'
 
 export type AmiOriginateInput = {
   to: string
@@ -45,6 +49,23 @@ export type AmiHangupInput = {
 export type AmiHangupResult = {
   enabled: boolean
   channels: string[]
+  response?: string
+}
+
+export type AmiTransferInput = {
+  callId?: number | string | null
+  providerCallId?: string | null
+  phone?: string | null
+  agentExtension?: string | null
+  target: string
+}
+
+export type AmiTransferResult = {
+  enabled: boolean
+  channels: string[]
+  target: string
+  targetKind: 'extension' | 'external'
+  context: string
   response?: string
 }
 
@@ -480,3 +501,96 @@ export async function hangupBackendOriginatedCall(input: AmiHangupInput): Promis
   }
 }
 
+
+
+function resolveTransferTarget(target: string) {
+  const raw = sanitizeDialString(target)
+  if (!raw) throw new AppError('Transfer destination is required', 400)
+
+  /*
+    Internal extensions are intentionally kept narrow so a 10/11-digit PSTN
+    number is never mistaken for an extension.
+  */
+  if (/^[0-9]{2,6}$/.test(raw)) {
+    return {
+      target: raw,
+      targetKind: 'extension' as const,
+      context: TRANSFER_INTERNAL_CONTEXT,
+      exten: raw,
+    }
+  }
+
+  const externalDigits = digitsOnly(raw)
+  if (externalDigits.length < 7 || externalDigits.length > 15) {
+    throw new AppError('Transfer phone number must be a valid extension or phone number', 400)
+  }
+
+  return {
+    target: raw,
+    targetKind: 'external' as const,
+    context: TRANSFER_CONTEXT,
+    exten: TRANSFER_EXTERNAL_PREFIX + externalDigits,
+  }
+}
+
+function pickTransferChannel(channels: string[], agentExtension?: string | null) {
+  const agent = sanitizeExtension(agentExtension)
+  if (agent) {
+    const agentChannel = channels.find(channel => channel.startsWith(`PJSIP/${agent}-`) || channel === `PJSIP/${agent}`)
+    if (agentChannel) return agentChannel
+  }
+
+  return (
+    channels.find(channel => channel.startsWith('PJSIP/')) ||
+    channels.find(channel => channel.startsWith('Local/')) ||
+    channels[0]
+  )
+}
+
+export async function transferBackendOriginatedCall(input: AmiTransferInput): Promise<AmiTransferResult> {
+  const resolved = resolveTransferTarget(input.target)
+
+  if (!AMI_ENABLED) {
+    return {
+      enabled: false,
+      channels: [],
+      target: resolved.target,
+      targetKind: resolved.targetKind,
+      context: resolved.context,
+      response: 'Asterisk AMI is disabled',
+    }
+  }
+
+  const channels = findHangupTargets(await listConciseChannels(), input)
+  const channel = pickTransferChannel(channels, input.agentExtension)
+
+  if (!channel) {
+    throw new AppError('No active call channel found for transfer', 404)
+  }
+
+  const transferAction = amiCommand([
+    'Action: BlindTransfer',
+    'ActionID: ' + actionId(),
+    'Channel: ' + channel,
+    'Context: ' + resolved.context,
+    'Exten: ' + resolved.exten,
+    'Priority: ' + TRANSFER_PRIORITY,
+  ])
+
+  const response = await sendAmiUntil(
+    [loginAction(), transferAction, logoffAction()],
+    buffer => buffer.includes('Response: Success') || buffer.includes('Response: Error'),
+    Math.max(AMI_TIMEOUT_MS, 3500),
+  )
+
+  logger.info('Asterisk AMI transfer requested for PTDT-Dialer call')
+
+  return {
+    enabled: true,
+    channels: [channel],
+    target: resolved.target,
+    targetKind: resolved.targetKind,
+    context: resolved.context,
+    response,
+  }
+}
