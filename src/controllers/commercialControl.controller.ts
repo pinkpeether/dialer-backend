@@ -7,11 +7,32 @@ import prisma from '../lib/prisma'
 const idParam = (value: string) => Number(value)
 const accountIdFromQuery = (value: unknown) => typeof value === 'string' && value.trim() ? Number(value) : undefined
 const visibleSubscriptionStatuses = ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'TRIAL'] as const
+const lifecycleStatuses = ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'ARCHIVED'] as const
+
+type LifecycleStatus = typeof lifecycleStatuses[number]
 
 const normalizeCommercialStatus = (status?: string | null) => {
   if (status === 'ACTIVE') return 'ACTIVE'
   if (status === 'SUSPENDED') return 'SUSPENDED'
+  if (status === 'ARCHIVED') return 'ARCHIVED'
   return 'INACTIVE'
+}
+
+const normalizeLifecycleStatus = (status?: string | null): LifecycleStatus => {
+  const next = String(status || '').trim().toUpperCase()
+  if (lifecycleStatuses.includes(next as LifecycleStatus)) return next as LifecycleStatus
+  return 'INACTIVE'
+}
+
+const membershipStatusForLifecycle = (status: LifecycleStatus) => {
+  if (status === 'SUSPENDED') return 'SUSPENDED'
+  if (status === 'ARCHIVED') return 'INACTIVE'
+  return 'ACTIVE'
+}
+
+const subscriptionStatusForLifecycle = (status: LifecycleStatus) => {
+  if (status === 'ARCHIVED') return 'SUSPENDED'
+  return status === 'ACTIVE' ? 'ACTIVE' : status === 'SUSPENDED' ? 'SUSPENDED' : 'INACTIVE'
 }
 
 const latestVisibleSubscription = async (accountId: number) => prisma.commercialSubscription.findFirst({
@@ -25,14 +46,16 @@ const withLatestSubscriptionStatus = async <T extends { account?: { id?: number;
   if (!accountId) return summary
 
   const subscription = await latestVisibleSubscription(accountId)
-  const status = normalizeCommercialStatus(subscription?.status || summary.account?.status)
+  const status = normalizeCommercialStatus(summary.account?.status === 'ARCHIVED' ? 'ARCHIVED' : subscription?.status || summary.account?.status)
 
   return {
     ...summary,
     account: summary.account ? { ...summary.account, status } : summary.account,
-    subscription: subscription ? { ...subscription, status } : summary.subscription,
+    subscription: subscription ? { ...subscription, status: status === 'ARCHIVED' ? 'SUSPENDED' : status } : summary.subscription,
   }
 }
+
+const getLifecycleSummary = async (accountId: number) => withLatestSubscriptionStatus(await commercialControlService.getSummary(accountId))
 
 export const seedCatalog = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -70,6 +93,73 @@ export const listAccounts = async (_req: AuthRequest, res: Response, next: NextF
 export const createAccount = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     return sendSuccess(res, await commercialControlService.createAccount(req.body, req.user), 'Commercial account created', 201)
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export const updateAccountLifecycle = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const accountId = idParam(req.params.accountId)
+    const status = normalizeLifecycleStatus(req.body?.status)
+    const account = await prisma.commercialAccount.findUnique({ where: { id: accountId }, select: { id: true, code: true } })
+    if (!account) return res.status(404).json({ success: false, message: 'Commercial account not found' })
+    if (account.code === 'PTDT_DEFAULT' && status === 'ARCHIVED') {
+      return res.status(400).json({ success: false, message: 'Default commercial account cannot be archived.' })
+    }
+
+    await prisma.$transaction(async tx => {
+      await tx.commercialAccount.update({ where: { id: accountId }, data: { status } })
+      await tx.commercialAccountMembership.updateMany({ where: { accountId }, data: { status: membershipStatusForLifecycle(status) as any } })
+      const subscription = await tx.commercialSubscription.findFirst({
+        where: { accountId, status: { in: visibleSubscriptionStatuses as any } },
+        orderBy: { startsAt: 'desc' },
+      })
+      if (subscription) {
+        await tx.commercialSubscription.update({
+          where: { id: subscription.id },
+          data: { status: subscriptionStatusForLifecycle(status) as any, notes: req.body?.notes || subscription.notes },
+        })
+      }
+    })
+
+    return sendSuccess(res, await getLifecycleSummary(accountId), 'Commercial account lifecycle updated')
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export const finalDeleteAccount = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const accountId = idParam(req.params.accountId)
+    const confirmCode = String(req.body?.confirmCode || '').trim()
+    const account = await prisma.commercialAccount.findUnique({
+      where: { id: accountId },
+      include: { wallet: { select: { id: true } } },
+    })
+    if (!account) return res.status(404).json({ success: false, message: 'Commercial account not found' })
+    if (account.code === 'PTDT_DEFAULT') return res.status(400).json({ success: false, message: 'Default commercial account cannot be final deleted.' })
+    if (confirmCode !== account.code) return res.status(400).json({ success: false, message: 'Type the exact account code to confirm final delete.' })
+
+    const [transactions, paymentRequests, subscriptions, addons, alerts] = await Promise.all([
+      account.wallet ? prisma.commercialWalletTransaction.count({ where: { walletId: account.wallet.id } }) : Promise.resolve(0),
+      prisma.commercialPaymentRequest.count({ where: { accountId } }),
+      prisma.commercialSubscription.count({ where: { accountId } }),
+      prisma.commercialAccountAddon.count({ where: { accountId } }),
+      prisma.commercialBillingAlert.count({ where: { accountId } }),
+    ])
+
+    const historyCount = transactions + paymentRequests + subscriptions + addons + alerts
+    if (historyCount > 0) {
+      return res.status(409).json({
+        success: false,
+        message: 'This account has commercial history. Archive it instead of final delete.',
+        data: { transactions, paymentRequests, subscriptions, addons, alerts },
+      })
+    }
+
+    await prisma.commercialAccount.delete({ where: { id: accountId } })
+    return sendSuccess(res, { deleted: true, id: accountId, code: account.code }, 'Commercial account final deleted')
   } catch (err) {
     return next(err)
   }
