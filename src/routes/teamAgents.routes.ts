@@ -14,6 +14,7 @@ router.use(authenticate)
 
 const viewerRoles = ['ADMIN', 'CUSTOMER_ADMIN', 'MANAGER', 'SUPERVISOR']
 const managerRoles = ['ADMIN', 'CUSTOMER_ADMIN', 'MANAGER']
+const creatorRoles = ['ADMIN', 'CUSTOMER_ADMIN', 'MANAGER', 'SUPERVISOR']
 const selfRoles = ['ADMIN', 'CUSTOMER_ADMIN', 'MANAGER', 'SUPERVISOR', 'AGENT']
 
 router.get('/stats', authorize(...viewerRoles), async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -58,7 +59,7 @@ router.get('/:id', authorize(...viewerRoles), async (req: AuthRequest, res: Resp
   } catch (err) { return next(err) }
 })
 
-router.post('/', authorize(...managerRoles), validate(createAgentSchema), async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/', authorize(...creatorRoles), validate(createAgentSchema), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try { return sendSuccess(res, await TeamUserScope.createTeamUser(req.body, req.user), 'Team user created successfully', 201) }
   catch (err) { return next(err) }
 })
