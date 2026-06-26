@@ -14,6 +14,7 @@ router.get('/catalog', authorize('ADMIN', 'SUPERVISOR'), CommercialControlContro
 router.post('/admin/seed-catalog', authorize('ADMIN'), CommercialControlController.seedCatalog)
 router.get('/admin/accounts', authorize('ADMIN'), CommercialControlController.listAccounts)
 router.post('/admin/accounts', authorize('ADMIN'), CommercialControlController.createAccount)
+router.patch('/admin/accounts/:accountId/lifecycle', authorize('ADMIN'), CommercialControlController.updateAccountLifecycle)
 router.get('/admin/payment-requests', authorize('ADMIN'), CommercialControlController.listPaymentRequests)
 router.post('/admin/payment-requests', authorize('ADMIN'), CommercialControlController.createPaymentRequest)
 router.patch('/admin/payment-requests/:id/status', authorize('ADMIN'), CommercialControlController.updatePaymentRequestStatus)
