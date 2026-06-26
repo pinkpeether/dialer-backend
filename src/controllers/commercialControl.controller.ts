@@ -11,6 +11,12 @@ const lifecycleStatuses = ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'ARCHIVED'] as con
 
 type LifecycleStatus = typeof lifecycleStatuses[number]
 
+type SummaryWithCallerIdControl = {
+  account?: { id?: number; status?: string }
+  subscription?: unknown
+  callerIdControl?: Record<string, unknown>
+}
+
 const normalizeCommercialStatus = (status?: string | null) => {
   if (status === 'ACTIVE') return 'ACTIVE'
   if (status === 'SUSPENDED') return 'SUSPENDED'
@@ -41,17 +47,45 @@ const latestVisibleSubscription = async (accountId: number) => prisma.commercial
   orderBy: { startsAt: 'desc' },
 })
 
-const withLatestSubscriptionStatus = async <T extends { account?: { id?: number; status?: string }; subscription?: unknown }>(summary: T) => {
+const accountScopedCallerIdControl = async (accountId: number, currentControl?: Record<string, unknown>) => {
+  const callerIds = await prisma.spoofingNumber.findMany({
+    where: {
+      isVerified: true,
+      providerRef: { contains: `accountId=${accountId};` },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+  }).catch(() => [])
+
+  const activeCallerIds = callerIds.filter(item => item.isActive)
+
+  return {
+    ...currentControl,
+    verifiedCallerIds: callerIds.length,
+    activeVerifiedCallerIds: activeCallerIds.length,
+    availableNumbers: activeCallerIds.map(item => ({
+      id: item.id,
+      displayNumber: item.displayNumber,
+      displayName: item.displayName,
+      scope: item.scope,
+      provider: item.provider,
+    })),
+  }
+}
+
+const withLatestSubscriptionStatus = async <T extends SummaryWithCallerIdControl>(summary: T) => {
   const accountId = Number(summary.account?.id)
   if (!accountId) return summary
 
   const subscription = await latestVisibleSubscription(accountId)
   const status = normalizeCommercialStatus(summary.account?.status === 'ARCHIVED' ? 'ARCHIVED' : subscription?.status || summary.account?.status)
+  const callerIdControl = await accountScopedCallerIdControl(accountId, summary.callerIdControl)
 
   return {
     ...summary,
     account: summary.account ? { ...summary.account, status } : summary.account,
     subscription: subscription ? { ...subscription, status: status === 'ARCHIVED' ? 'SUSPENDED' : status } : summary.subscription,
+    callerIdControl,
   }
 }
 
