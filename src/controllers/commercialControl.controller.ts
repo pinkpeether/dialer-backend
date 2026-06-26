@@ -2,13 +2,41 @@ import { Response, NextFunction } from 'express'
 import { AuthRequest } from '../middleware/auth'
 import { sendSuccess } from '../utils/response'
 import { commercialControlService } from '../services/commercialControl.service'
+import prisma from '../lib/prisma'
 
 const idParam = (value: string) => Number(value)
 const accountIdFromQuery = (value: unknown) => typeof value === 'string' && value.trim() ? Number(value) : undefined
+const visibleSubscriptionStatuses = ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'TRIAL'] as const
+
+const normalizeCommercialStatus = (status?: string | null) => {
+  if (status === 'ACTIVE') return 'ACTIVE'
+  if (status === 'SUSPENDED') return 'SUSPENDED'
+  return 'INACTIVE'
+}
+
+const latestVisibleSubscription = async (accountId: number) => prisma.commercialSubscription.findFirst({
+  where: { accountId, status: { in: visibleSubscriptionStatuses as any } },
+  include: { plan: true, account: true },
+  orderBy: { startsAt: 'desc' },
+})
+
+const withLatestSubscriptionStatus = async <T extends { account?: { id?: number; status?: string }; subscription?: unknown }>(summary: T) => {
+  const accountId = Number(summary.account?.id)
+  if (!accountId) return summary
+
+  const subscription = await latestVisibleSubscription(accountId)
+  const status = normalizeCommercialStatus(subscription?.status || summary.account?.status)
+
+  return {
+    ...summary,
+    account: summary.account ? { ...summary.account, status } : summary.account,
+    subscription: subscription ? { ...subscription, status } : summary.subscription,
+  }
+}
 
 export const seedCatalog = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    return sendSuccess(res, await commercialControlService.seedCatalog(req.user), 'Commercial catalog seeded')
+    return sendSuccess(res, await withLatestSubscriptionStatus(await commercialControlService.seedCatalog(req.user)), 'Commercial catalog seeded')
   } catch (err) {
     return next(err)
   }
@@ -24,7 +52,8 @@ export const getCatalog = async (_req: AuthRequest, res: Response, next: NextFun
 
 export const getSummary = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    return sendSuccess(res, await commercialControlService.getSummary(accountIdFromQuery(req.query.accountId)), 'Commercial summary fetched')
+    const summary = await commercialControlService.getSummary(accountIdFromQuery(req.query.accountId))
+    return sendSuccess(res, await withLatestSubscriptionStatus(summary), 'Commercial summary fetched')
   } catch (err) {
     return next(err)
   }
@@ -76,9 +105,32 @@ export const updatePaymentRequestStatus = async (req: AuthRequest, res: Response
 
 export const activatePlan = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    const accountId = idParam(req.params.accountId)
+    const status = normalizeCommercialStatus(req.body?.status)
+    const subscription = await commercialControlService.activatePlan(accountId, { ...req.body, status }, req.user)
+
+    await prisma.commercialSubscription.updateMany({
+      where: {
+        accountId,
+        id: { not: subscription.id },
+        status: { in: visibleSubscriptionStatuses as any },
+      },
+      data: { status: 'EXPIRED' as any, endsAt: new Date() },
+    })
+
+    await prisma.commercialAccount.update({
+      where: { id: accountId },
+      data: { status: status as any },
+    })
+
+    const refreshed = await prisma.commercialSubscription.findUnique({
+      where: { id: subscription.id },
+      include: { plan: true, account: true },
+    })
+
     return sendSuccess(
       res,
-      await commercialControlService.activatePlan(idParam(req.params.accountId), req.body, req.user),
+      refreshed ? { ...refreshed, status, account: { ...refreshed.account, status } } : { ...subscription, status },
       'Subscription plan updated',
     )
   } catch (err) {
