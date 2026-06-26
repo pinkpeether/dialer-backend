@@ -9,6 +9,7 @@ type TeamRole = 'CUSTOMER_ADMIN' | 'MANAGER' | 'SUPERVISOR' | 'AGENT'
 const PLATFORM_ROLES = new Set(['SUPER_ADMIN', 'ADMIN'])
 const TEAM_ROLES: TeamRole[] = ['CUSTOMER_ADMIN', 'MANAGER', 'SUPERVISOR', 'AGENT']
 const isPlatform = (actor?: Actor) => Boolean(actor?.role && PLATFORM_ROLES.has(String(actor.role)))
+const actorRole = (actor?: Actor) => String(actor?.role || '').trim().toUpperCase()
 
 const normalizeRole = (value?: string): TeamRole => {
   const role = String(value || 'AGENT').trim().toUpperCase() as TeamRole
@@ -49,9 +50,10 @@ const attachUserToAccount = async (userId: number, accountId: number, role: Team
 }
 
 const getManagedAccountId = async (actor?: Actor) => {
-  const accountIds = await BaseScope.getActorAccountIds(actor, true)
+  const requireManageUsers = actorRole(actor) !== 'SUPERVISOR'
+  const accountIds = await BaseScope.getActorAccountIds(actor, requireManageUsers)
   if (!accountIds.length) {
-    throw new AppError('This Customer Admin is not attached to a commercial account with Manage Users permission. PTDT Super Admin must assign this user as Owner/Admin in Platform Administration first.', 403)
+    throw new AppError('Your account is not allowed to create team users. Ask PTDT Support to assign account membership.', 403)
   }
   return accountIds[0]
 }
@@ -65,6 +67,10 @@ export const createTeamUser = async (data: {
   phone?: string
 }, actor?: Actor) => {
   const role = normalizeRole(data.role)
+
+  if (actorRole(actor) === 'SUPERVISOR' && role !== 'AGENT') {
+    throw new AppError('Supervisor can create Agent users only.', 403)
+  }
 
   if (isPlatform(actor)) {
     return AgentService.createAgent({ ...data, role })
