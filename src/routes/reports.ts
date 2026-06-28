@@ -5,7 +5,7 @@ import { authenticate, authorize } from '../middleware/auth'
 const router = Router()
 
 router.use(authenticate)
-router.use(authorize('ADMIN', 'SUPERVISOR'))
+router.use(authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'))
 
 // GET /api/reports/summary
 router.get('/summary',    ReportsController.getSummary)

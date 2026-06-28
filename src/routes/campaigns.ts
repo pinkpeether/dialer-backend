@@ -16,28 +16,28 @@ router.use(authenticate);
 // Stats
 router.get(
   '/stats',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   CampaignController.getCampaignStats,
 );
 
 // List all
 router.get(
   '/',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   CampaignController.getAllCampaigns,
 );
 
 // Single campaign
 router.get(
   '/:id',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   CampaignController.getCampaignById,
 );
 
 // Create
 router.post(
   '/',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   validate(createCampaignSchema),
   CampaignController.createCampaign,
 );
@@ -45,7 +45,7 @@ router.post(
 // Update
 router.put(
   '/:id',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   validate(updateCampaignSchema),
   CampaignController.updateCampaign,
 );
@@ -60,7 +60,7 @@ router.delete(
 // Status change (start/pause/complete)
 router.patch(
   '/:id/status',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   validate(
     Joi.object({
       status: Joi.string()
@@ -93,7 +93,7 @@ router.patch(
 // Clone campaign
 router.post(
   '/:id/clone',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   CampaignController.cloneCampaign,
 );
 

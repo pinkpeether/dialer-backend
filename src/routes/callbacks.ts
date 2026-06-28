@@ -8,19 +8,19 @@ router.use(authenticate)
 
 // GET /api/callbacks
 router.get('/',
-  authorize('ADMIN', 'SUPERVISOR', 'AGENT'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR', 'AGENT'),
   CallbackController.getAllCallbacks
 )
 
 // POST /api/callbacks
 router.post('/',
-  authorize('ADMIN', 'SUPERVISOR', 'AGENT'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR', 'AGENT'),
   CallbackController.createCallback
 )
 
 // PATCH /api/callbacks/:id
 router.patch('/:id',
-  authorize('ADMIN', 'SUPERVISOR', 'AGENT'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR', 'AGENT'),
   CallbackController.updateCallback
 )
 

@@ -26,45 +26,45 @@ router.use(authenticate)
 
 // Stats
 router.get('/stats',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   ContactController.getContactStats
 )
 
 // List
 router.get('/',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   ContactController.getAllContacts
 )
 
 // Single
 router.get('/:id/calls',
-  authorize('ADMIN', 'SUPERVISOR', 'AGENT'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR', 'AGENT'),
   ContactController.getContactCalls
 )
 
 // Single
 router.get('/:id',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   ContactController.getContactById
 )
 
 // Manual add
 router.post('/',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   validate(createContactSchema),
   ContactController.createContact
 )
 
 // CSV Upload
 router.post('/upload/:campaignId',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   upload.single('file'),
   ContactController.uploadCSV
 )
 
 // Update
 router.put('/:id',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   validate(updateContactSchema),
   ContactController.updateContact
 )
@@ -77,7 +77,7 @@ router.delete('/:id',
 
 // Add to DNC
 router.post('/dnc',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   ContactController.addToDNC
 )
 

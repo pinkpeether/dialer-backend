@@ -38,7 +38,7 @@ router.post('/ingest/freepbx', recordingUpload.single('file'), RecordingIngestCo
 router.get('/:callId/stream', RecordingController.stream)
 
 router.use(authenticate)
-router.use(authorize('ADMIN', 'SUPERVISOR'))
+router.use(authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'))
 
 router.get('/health', RecordingController.health)
 router.get('/', RecordingController.list)

@@ -8,19 +8,19 @@ router.use(authenticate)
 
 // GET /api/dnc/check?phone=+923001234567
 router.get('/check',
-  authorize('ADMIN', 'SUPERVISOR', 'AGENT'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR', 'AGENT'),
   DncController.checkDnc
 )
 
 // GET /api/dnc
 router.get('/',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   DncController.getAllDnc
 )
 
 // POST /api/dnc
 router.post('/',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   DncController.addToDnc
 )
 
