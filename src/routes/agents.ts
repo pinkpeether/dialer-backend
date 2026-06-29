@@ -18,7 +18,7 @@ const router = Router()
 router.use(authenticate)
 
 const viewerRoles = ['ADMIN', 'CUSTOMER_ADMIN', 'MANAGER', 'SUPERVISOR']
-const managerRoles = ['ADMIN', 'CUSTOMER_ADMIN', 'MANAGER']
+const managerRoles = ['ADMIN', 'CUSTOMER_ADMIN', 'MANAGER', 'SUPERVISOR']
 const selfRoles = ['ADMIN', 'CUSTOMER_ADMIN', 'MANAGER', 'SUPERVISOR', 'AGENT']
 
 router.get('/stats', authorize(...viewerRoles), AgentController.getAgentStats)
