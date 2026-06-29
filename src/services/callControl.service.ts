@@ -3,6 +3,7 @@ import { AppError } from '../middleware/errorHandler'
 import logger from '../utils/logger'
 import { logAuditEvent } from './audit.service'
 import { transferBackendOriginatedCall } from './asteriskAmi.service'
+import * as Scope from './commercialScope.service'
 
 type Actor = {
   id: number
@@ -26,13 +27,13 @@ type ActionStatus =
 
 const safeString = (value: unknown) => String(value || '').trim()
 
-const getCall = async (payload: Record<string, unknown>) => {
+const getCall = async (payload: Record<string, unknown>, actor?: Actor) => {
   const callId = Number(payload.callId)
   const providerCallId = safeString(payload.providerCallId)
 
   if (Number.isFinite(callId) && callId > 0) {
-    const call = await prisma.call.findUnique({
-      where: { id: callId },
+    const call = await prisma.call.findFirst({
+      where: { id: callId, ...(await Scope.callScopeWhere(actor)) },
       include: {
         contact: { select: { id: true, name: true, phone: true } },
         agent: { select: { id: true, name: true, email: true, role: true } },
@@ -45,7 +46,7 @@ const getCall = async (payload: Record<string, unknown>) => {
 
   if (providerCallId) {
     const call = await prisma.call.findFirst({
-      where: { providerCallId },
+      where: { providerCallId, ...(await Scope.callScopeWhere(actor)) },
       include: {
         contact: { select: { id: true, name: true, phone: true } },
         agent: { select: { id: true, name: true, email: true, role: true } },
@@ -61,7 +62,7 @@ const getCall = async (payload: Record<string, unknown>) => {
 
 const assertControlAllowed = (actor: Actor, call: Awaited<ReturnType<typeof getCall>>) => {
   const role = String(actor.role || '').toUpperCase()
-  if (role === 'ADMIN' || role === 'SUPERVISOR') return
+  if (role === 'ADMIN' || role === 'CUSTOMER_ADMIN' || role === 'SUPERVISOR') return
 
   if (role === 'AGENT' && call.agentId === actor.id) return
 
@@ -165,9 +166,10 @@ export const getCapabilities = () => ({
   },
 })
 
-export const getActiveCalls = async () => {
+export const getActiveCalls = async (actor?: Actor) => {
   const calls = await prisma.call.findMany({
     where: {
+      ...(await Scope.callScopeWhere(actor)),
       status: { in: ['INITIATED', 'RINGING', 'ANSWERED'] },
     },
     include: {
@@ -190,7 +192,7 @@ export const runControlAction = async ({ action, payload, actor, ipAddress }: Ru
   const normalized = String(action || '').trim().toLowerCase()
   if (!normalized) throw new AppError('Action is required', 400)
 
-  const call = await getCall(payload)
+  const call = await getCall(payload, actor)
   assertControlAllowed(actor, call)
 
   const providerCallId = safeString(payload.providerCallId) || safeString(call.providerCallId)

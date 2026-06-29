@@ -602,6 +602,8 @@ model AiCallLog {
   id                    Int       @id @default(autoincrement())
   provider              String    @default("retell")
   providerCallId        String    @unique
+  commercialAccountId    Int?
+  requestedByUserId      Int?
   lastEvent             String?
   callStatus            String?
   callType              String?

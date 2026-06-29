@@ -1,5 +1,6 @@
 import { PrismaClient, Prisma } from '@prisma/client'
 import { RetellPhoneCallResponse } from './retell.service'
+import * as Scope from './commercialScope.service'
 
 const prisma = new PrismaClient()
 
@@ -185,6 +186,7 @@ export async function createAiCallLogFromOutboundRequest(input: {
   call: RetellPhoneCallResponse | Record<string, unknown>
   request: {
     actorId?: number
+    commercialAccountId?: number | null
     toNumber: string
     fromNumber: string
     transferDestination: string
@@ -226,6 +228,10 @@ export async function createAiCallLogFromOutboundRequest(input: {
 
   createData.transferDestination = input.request.transferDestination
   updateData.transferDestination = input.request.transferDestination
+  createData.commercialAccountId = input.request.commercialAccountId ?? undefined
+  createData.requestedByUserId = input.request.actorId ?? undefined
+  updateData.commercialAccountId = input.request.commercialAccountId ?? undefined
+  updateData.requestedByUserId = input.request.actorId ?? undefined
 
   const record = await prisma.aiCallLog.upsert({
     where: {
@@ -277,8 +283,13 @@ export interface AiCallLogListInput {
   includeRaw?: boolean
 }
 
-function buildAiCallLogWhere(input: AiCallLogListInput): Prisma.AiCallLogWhereInput {
+async function buildAiCallLogWhere(input: AiCallLogListInput, actor?: Scope.ScopeActor): Promise<Prisma.AiCallLogWhereInput> {
   const where: Prisma.AiCallLogWhereInput = {}
+
+  if (!Scope.isPlatformActor(actor)) {
+    const accountIds = await Scope.getActorAccountIds(actor)
+    where.commercialAccountId = { in: accountIds.length ? accountIds : [-1] }
+  }
 
   if (input.status) {
     where.callStatus = input.status
@@ -342,11 +353,11 @@ const detailSelect = {
   callAnalysis: true,
 } satisfies Prisma.AiCallLogSelect
 
-export async function listAiCallLogRecords(input: AiCallLogListInput) {
+export async function listAiCallLogRecords(input: AiCallLogListInput, actor?: Scope.ScopeActor) {
   const page = Math.max(1, input.page)
   const limit = Math.min(Math.max(1, input.limit), 100)
   const skip = (page - 1) * limit
-  const where = buildAiCallLogWhere(input)
+  const where = await buildAiCallLogWhere(input, actor)
 
   const [items, total] = await Promise.all([
     prisma.aiCallLog.findMany({
@@ -374,10 +385,12 @@ export async function listAiCallLogRecords(input: AiCallLogListInput) {
   }
 }
 
-export async function getAiCallLogRecordById(id: number, includeRaw = false) {
-  return prisma.aiCallLog.findUnique({
+export async function getAiCallLogRecordById(id: number, includeRaw = false, actor?: Scope.ScopeActor) {
+  const where = await buildAiCallLogWhere({ page: 1, limit: 1 }, actor)
+  return prisma.aiCallLog.findFirst({
     where: {
       id,
+      ...where,
     },
     select: includeRaw ? { ...detailSelect, rawPayload: true } : detailSelect,
   })

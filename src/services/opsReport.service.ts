@@ -1,4 +1,8 @@
+import type { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
+import * as Scope from './commercialScope.service'
+
+type Actor = Scope.ScopeActor
 
 const todayRange = () => {
   const start = new Date()
@@ -8,38 +12,52 @@ const todayRange = () => {
   return { start, end }
 }
 
-const byKey = <T extends string | null>(rows: Array<{ [key: string]: unknown; _count: { _all: number } }>, key: string) => {
-  return rows.reduce<Record<string, number>>((acc, row) => {
+const byKey = <T extends string | null>(rows: Array<{ [key: string]: unknown; _count: { _all: number } }>, key: string) =>
+  rows.reduce<Record<string, number>>((acc, row) => {
     const value = row[key] as T
     if (value) acc[String(value)] = row._count._all
     return acc
   }, {})
+
+const callbackScopeWhere = async (actor?: Actor): Promise<Prisma.CallbackWhereInput> => {
+  if (Scope.isPlatformActor(actor)) return {}
+  const accountIds = await Scope.getActorAccountIds(actor)
+  const ids = accountIds.length ? accountIds : [-1]
+  return {
+    OR: [
+      { agent: { commercialMemberships: { some: { accountId: { in: ids }, status: 'ACTIVE' } } } },
+      { call: { campaign: { commercialAccountId: { in: ids } } } },
+      { contact: { campaign: { commercialAccountId: { in: ids } } } },
+    ],
+  }
 }
 
-export const getOpsSummary = async () => {
+export const getOpsSummary = async (actor?: Actor) => {
   const { start, end } = todayRange()
   const now = new Date()
+  const campaignWhere = await Scope.campaignScopeWhere(actor)
+  const callWhere = await Scope.callScopeWhere(actor)
+  const callbackWhere = await callbackScopeWhere(actor)
 
-  // Sequential by design: keeps Prisma safe with small connection pools.
-  const campaignRows = await prisma.campaign.groupBy({ by: ['status'], _count: { _all: true } })
+  const campaignRows = await prisma.campaign.groupBy({ by: ['status'], where: campaignWhere, _count: { _all: true } })
   const callRows = await prisma.call.groupBy({
     by: ['status'],
-    where: { startedAt: { gte: start, lt: end } },
+    where: { ...callWhere, startedAt: { gte: start, lt: end } },
     _count: { _all: true },
   })
   const dispositionRows = await prisma.call.groupBy({
     by: ['disposition'],
-    where: { startedAt: { gte: start, lt: end }, disposition: { not: null } },
+    where: { ...callWhere, startedAt: { gte: start, lt: end }, disposition: { not: null } },
     _count: { _all: true },
   })
   const dueOrOverdue = await prisma.callback.count({
-    where: { status: { in: ['PENDING', 'RESCHEDULED'] }, scheduledAt: { lte: now } },
+    where: { ...callbackWhere, status: { in: ['PENDING', 'RESCHEDULED'] }, scheduledAt: { lte: now } },
   })
   const upcoming = await prisma.callback.count({
-    where: { status: { in: ['PENDING', 'RESCHEDULED'] }, scheduledAt: { gt: now } },
+    where: { ...callbackWhere, status: { in: ['PENDING', 'RESCHEDULED'] }, scheduledAt: { gt: now } },
   })
   const lowContactCampaigns = await prisma.campaign.findMany({
-    where: { status: 'ACTIVE' },
+    where: { ...campaignWhere, status: 'ACTIVE' },
     select: {
       id: true,
       name: true,

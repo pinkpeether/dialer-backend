@@ -5,7 +5,7 @@ import * as LiveMonitoringAdvancedController from '../controllers/liveMonitoring
 const router = Router()
 
 router.use(authenticate)
-router.use(authorize('ADMIN', 'SUPERVISOR'))
+router.use(authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'))
 
 router.get('/overview', LiveMonitoringAdvancedController.overview)
 

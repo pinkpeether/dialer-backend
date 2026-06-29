@@ -93,6 +93,15 @@ export const listTeamUsers = async (filters: {
   const visibleIds = await getVisibleTeamUserIds(actor)
   const where = teamWhere(filters, visibleIds)
 
+  // Operational team pages should not list customer owners/main Customer Admins.
+  // Customer Admin sees Supervisors + Agents. Supervisor sees Agents only.
+  if (!isPlatform(actor)) {
+    const role = String(actor?.role || '').toUpperCase()
+    where.role = role === 'SUPERVISOR'
+      ? 'AGENT'
+      : { in: ['SUPERVISOR', 'AGENT'] }
+  }
+
   const [agents, total] = await Promise.all([
     prisma.user.findMany({
       where,

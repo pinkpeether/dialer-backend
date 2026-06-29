@@ -5,7 +5,7 @@ import * as OpsController from '../controllers/ops.controller'
 const router = Router()
 
 router.use(authenticate)
-router.use(authorize('ADMIN', 'SUPERVISOR'))
+router.use(authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'))
 
 router.get('/summary', OpsController.summary)
 router.post('/run-notification-jobs', authorize('ADMIN'), OpsController.runNotificationJobs)

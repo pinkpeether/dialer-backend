@@ -2,6 +2,7 @@ import os from 'os'
 import prisma from '../lib/prisma'
 import { getMonitoringSummary } from './monitoring.service'
 import { getRecordingStorageHealth } from './recording.service'
+import * as Scope from './commercialScope.service'
 
 const envPresent = (name: string) => Boolean(process.env[name])
 
@@ -29,11 +30,11 @@ const safePackageVersion = () => {
   }
 }
 
-export const getSupportDiagnostics = async () => {
+export const getSupportDiagnostics = async (actor?: Scope.ScopeActor) => {
   const [dbResult, monitoringResult, recordingsResult] = await Promise.allSettled([
     checkDb(),
-    getMonitoringSummary(),
-    getRecordingStorageHealth(),
+    getMonitoringSummary(actor),
+    getRecordingStorageHealth(actor),
   ])
 
   const db = dbResult.status === 'fulfilled'

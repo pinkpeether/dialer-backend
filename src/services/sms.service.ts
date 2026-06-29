@@ -7,7 +7,10 @@ type SmsSendInput = {
 }
 
 const truthy = (value: string | undefined) => ['1', 'true', 'yes', 'on'].includes(String(value || '').toLowerCase())
-const publicProviderName = () => process.env.SMS_PROVIDER || 'PTDT Dialer'
+const publicProviderName = () => {
+  const configured = String(process.env.SMS_PROVIDER || 'Custom').trim()
+  return configured.toLowerCase().includes('illyvoip') ? 'Custom' : configured
+}
 
 const getProviderBaseUrl = () => {
   const raw = process.env.ILLYVOIP_SMS_API_BASE_URL || 'https://illyvoip.com/my/api.php'
