@@ -52,7 +52,7 @@ router.put(
 // Delete
 router.delete(
   '/:id',
-  authorize('ADMIN'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   CampaignController.deleteCampaign,
 );
 
