@@ -1,6 +1,10 @@
 import { parse } from 'csv-parse/sync'
+import type { ContactStatus, Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
+import * as Scope from './commercialScope.service'
+
+type Actor = Scope.ScopeActor
 
 // ── Phone number normalizer ──
 const normalizePhone = (phone: string): string => {
@@ -21,12 +25,12 @@ export const getAllContacts = async (filters: {
   search?: string
   page?: number
   limit?: number
-}) => {
+}, actor?: Actor) => {
   const { campaignId, status, search, page = 1, limit = 50 } = filters
 
-  const where: Record<string, unknown> = {}
+  const where: Prisma.ContactWhereInput = await Scope.contactScopeWhere(actor)
   if (campaignId) where.campaignId = campaignId
-  if (status)     where.status     = status
+  if (status)     where.status     = status as ContactStatus
   if (search) {
     where.OR = [
       { name:    { contains: search, mode: 'insensitive' } },
@@ -61,9 +65,9 @@ export const getAllContacts = async (filters: {
   }
 }
 
-export const getContactById = async (id: number) => {
-  const contact = await prisma.contact.findUnique({
-    where: { id },
+export const getContactById = async (id: number, actor?: Actor) => {
+  const contact = await prisma.contact.findFirst({
+    where: { id, ...(await Scope.contactScopeWhere(actor)) },
     include: {
       calls: {
         orderBy: { startedAt: 'desc' },
@@ -89,7 +93,9 @@ export const createContact = async (data: {
   company?: string
   notes?: string
   campaignId: number
-}) => {
+}, actor?: Actor) => {
+  await Scope.assertCampaignAccess(data.campaignId, actor)
+
   // Check campaign exists
   const campaign = await prisma.campaign.findUnique({
     where: { id: data.campaignId }
@@ -124,7 +130,10 @@ export const updateContact = async (
     notes: string
     status: string
   }>
+,
+  actor?: Actor
 ) => {
+  await Scope.assertContactAccess(id, actor)
   const existing = await prisma.contact.findUnique({ where: { id } })
   if (!existing) throw new AppError('Contact not found', 404)
 
@@ -136,7 +145,10 @@ export const updateContact = async (
   })
 }
 
-export const deleteContact = async (id: number) => {
+export const deleteContact = async (id: number,
+  actor?: Actor
+) => {
+  await Scope.assertContactAccess(id, actor)
   const existing = await prisma.contact.findUnique({ where: { id } })
   if (!existing) throw new AppError('Contact not found', 404)
   await prisma.contact.delete({ where: { id } })
@@ -145,7 +157,8 @@ export const deleteContact = async (id: number) => {
 // ── CSV BULK UPLOAD ──
 export const uploadCSV = async (
   campaignId: number,
-  fileBuffer: Buffer
+  fileBuffer: Buffer,
+  actor?: Actor
 ): Promise<{
   imported: number
   duplicates: number
@@ -153,6 +166,8 @@ export const uploadCSV = async (
   errors: number
   total: number
 }> => {
+  await Scope.assertCampaignAccess(campaignId, actor)
+
   // Check campaign
   const campaign = await prisma.campaign.findUnique({
     where: { id: campaignId }
@@ -268,8 +283,9 @@ export const addToDNC = async (phone: string, reason?: string) => {
   })
 }
 
-export const getContactStats = async (campaignId?: number) => {
-  const where = campaignId ? { campaignId } : {}
+export const getContactStats = async (campaignId?: number, actor?: Actor) => {
+  const where: Prisma.ContactWhereInput = await Scope.contactScopeWhere(actor)
+  if (campaignId) where.campaignId = campaignId
 
   const grouped = await prisma.contact.groupBy({
     by: ['status'],

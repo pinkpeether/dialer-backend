@@ -7,7 +7,6 @@ import {
   updateCampaignSchema,
 } from '../validators/campaign.validator';
 import Joi from 'joi';
-import { queueManager } from '../services/queueManager';
 
 const router = Router();
 
@@ -68,26 +67,7 @@ router.patch(
         .required(),
     }),
   ),
-  async (req, res, next) => {
-    try {
-      const { id } = req.params;
-      const { status } = req.body as { status: string };
-
-      // When campaign is started (ACTIVE) → init queue
-      if (status === 'ACTIVE') {
-        await queueManager.initQueue(parseInt(id, 10));
-      }
-
-      // When campaign is paused or completed → clear queue + reset contacts
-      if (status === 'PAUSED' || status === 'COMPLETED') {
-        await queueManager.clear(parseInt(id, 10));
-      }
-
-      return CampaignController.updateCampaignStatus(req, res, next);
-    } catch (err) {
-      next(err);
-    }
-  },
+  CampaignController.updateCampaignStatus,
 );
 
 // Clone campaign

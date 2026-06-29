@@ -3,6 +3,7 @@ import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import { logAuditEvent } from './audit.service'
 import { refreshSignedRecordingUrlFromStoredUrl } from './recordingStorage.service'
+import * as Scope from './commercialScope.service'
 
 type Actor = { id: number; email?: string; role?: string } | undefined
 
@@ -132,11 +133,11 @@ const recordingInclude = {
   campaign: { select: { id: true, name: true } },
 }
 
-const getRecordingInternal = async (callId: number) => {
+const getRecordingInternal = async (callId: number, actor?: Actor) => {
   if (!Number.isFinite(callId)) throw new AppError('Invalid call id', 400)
 
-  const call = await prisma.call.findUnique({
-    where: { id: callId },
+  const call = await prisma.call.findFirst({
+    where: { id: callId, ...(actor ? await Scope.callScopeWhere(actor) : {}) },
     include: recordingInclude,
   })
 
@@ -144,8 +145,9 @@ const getRecordingInternal = async (callId: number) => {
   return call
 }
 
-const buildWhere = (filters: RecordingFilters) => {
+const buildWhere = async (filters: RecordingFilters, actor?: Actor) => {
   const where: Record<string, unknown> = {
+    ...(actor ? await Scope.callScopeWhere(actor) : {}),
     recordingUrl: { not: null },
   }
 
@@ -172,10 +174,10 @@ const buildWhere = (filters: RecordingFilters) => {
   return where
 }
 
-export const listRecordings = async (filters: RecordingFilters) => {
+export const listRecordings = async (filters: RecordingFilters, actor?: Actor) => {
   const page = Math.max(1, filters.page || 1)
   const limit = Math.min(Math.max(1, filters.limit || 50), 100)
-  const where = buildWhere(filters)
+  const where = await buildWhere(filters, actor)
 
   // Sequential by design: protects small Supabase/Railway pool configurations.
   const recordings = await prisma.call.findMany({
@@ -194,13 +196,13 @@ export const listRecordings = async (filters: RecordingFilters) => {
   }
 }
 
-export const getRecording = async (callId: number) => {
-  const call = await getRecordingInternal(callId)
+export const getRecording = async (callId: number, actor?: Actor) => {
+  const call = await getRecordingInternal(callId, actor)
   return sanitizeRecording(call)
 }
 
 export const getRecordingAccess = async (callId: number, options: AccessOptions) => {
-  const call = await getRecordingInternal(callId)
+  const call = await getRecordingInternal(callId, options.actor)
   const ttl = getAccessTtlSeconds()
   const now = Math.floor(Date.now() / 1000)
   const expiresAt = new Date((now + ttl) * 1000)
@@ -281,17 +283,18 @@ export const getRecordingPlaybackRedirect = async (callId: number, token: string
   return call.recordingUrl as string
 }
 
-export const getRecordingStorageHealth = async () => {
-  const total = await prisma.call.count({ where: { recordingUrl: { not: null } } })
+export const getRecordingStorageHealth = async (actor?: Actor) => {
+  const scopedWhere = await buildWhere({}, actor)
+  const total = await prisma.call.count({ where: scopedWhere })
   const missingSid = await prisma.call.count({
     where: {
-      recordingUrl: { not: null },
+      ...scopedWhere,
       recordingSid: null,
     },
   })
 
   const recent = await prisma.call.findMany({
-    where: { recordingUrl: { not: null } },
+    where: scopedWhere,
     select: {
       id: true,
       recordingUrl: true,

@@ -15,7 +15,7 @@ export const getAllContacts = async (
       search:     search     as string,
       page:       page  ? Number(page)  : 1,
       limit:      limit ? Number(limit) : 50,
-    })
+    }, req.user)
     return sendSuccess(res, result, 'Contacts fetched')
   } catch (err) { return next(err) }
 }
@@ -24,7 +24,7 @@ export const getContactById = async (
   req: AuthRequest, res: Response, next: NextFunction
 ) => {
   try {
-    const contact = await ContactService.getContactById(Number(req.params.id))
+    const contact = await ContactService.getContactById(Number(req.params.id), req.user)
     return sendSuccess(res, contact, 'Contact fetched')
   } catch (err) { return next(err) }
 }
@@ -45,7 +45,7 @@ export const createContact = async (
   req: AuthRequest, res: Response, next: NextFunction
 ) => {
   try {
-    const contact = await ContactService.createContact(req.body)
+    const contact = await ContactService.createContact(req.body, req.user)
     return sendSuccess(res, contact, 'Contact created successfully', 201)
   } catch (err) { return next(err) }
 }
@@ -55,7 +55,7 @@ export const updateContact = async (
 ) => {
   try {
     const contact = await ContactService.updateContact(
-      Number(req.params.id), req.body
+      Number(req.params.id), req.body, req.user
     )
     return sendSuccess(res, contact, 'Contact updated successfully')
   } catch (err) { return next(err) }
@@ -65,7 +65,7 @@ export const deleteContact = async (
   req: AuthRequest, res: Response, next: NextFunction
 ) => {
   try {
-    await ContactService.deleteContact(Number(req.params.id))
+    await ContactService.deleteContact(Number(req.params.id), req.user)
     return sendSuccess(res, null, 'Contact deleted successfully')
   } catch (err) { return next(err) }
 }
@@ -83,7 +83,7 @@ export const uploadCSV = async (
       return sendError(res, 'Invalid campaign ID', 400)
     }
 
-    const result = await ContactService.uploadCSV(campaignId, req.file.buffer)
+    const result = await ContactService.uploadCSV(campaignId, req.file.buffer, req.user)
     return sendSuccess(res, result, 'CSV uploaded successfully')
   } catch (err) { return next(err) }
 }
@@ -105,7 +105,8 @@ export const getContactStats = async (
   try {
     const { campaignId } = req.query
     const stats = await ContactService.getContactStats(
-      campaignId ? Number(campaignId) : undefined
+      campaignId ? Number(campaignId) : undefined,
+      req.user
     )
     return sendSuccess(res, stats, 'Contact stats fetched')
   } catch (err) { return next(err) }

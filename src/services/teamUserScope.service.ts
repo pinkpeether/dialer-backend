@@ -179,11 +179,19 @@ export const updateTeamUser = async (id: number, data: Record<string, unknown>, 
 
 export const deactivateTeamUser = async (id: number, actor?: Actor) => {
   await assertTeamUserAccess(actor, id)
+  if (String(actor?.role || '').toUpperCase() === 'SUPERVISOR') {
+    const target = await prisma.user.findUnique({ where: { id }, select: { role: true } })
+    if (target?.role !== 'AGENT') throw new AppError('Supervisor can manage Agent users only.', 403)
+  }
   return AgentService.deleteAgent(id, actor?.id)
 }
 
 export const updateTeamStatus = async (id: number, status: TeamStatus, actor?: Actor) => {
   await assertTeamUserAccess(actor, id)
+  if (String(actor?.role || '').toUpperCase() === 'SUPERVISOR') {
+    const target = await prisma.user.findUnique({ where: { id }, select: { role: true } })
+    if (target?.role !== 'AGENT') throw new AppError('Supervisor can manage Agent users only.', 403)
+  }
   return AgentService.updateAgentStatus(id, status)
 }
 
@@ -194,7 +202,7 @@ export const resetTeamPassword = async (id: number, password: string, actor?: Ac
 
 export const getTeamStats = async (actor?: Actor) => {
   const visibleIds = await getVisibleTeamUserIds(actor)
-  const where = teamWhere({ isActive: true }, visibleIds)
+  const where = teamWhere({ isActive: true, role: 'AGENT' }, visibleIds)
   const grouped = await prisma.user.groupBy({ by: ['status'], where, _count: { _all: true } })
   const counts = grouped.reduce<Record<string, number>>((acc, row) => {
     acc[row.status] = row._count._all

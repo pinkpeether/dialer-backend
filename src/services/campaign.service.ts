@@ -1,7 +1,9 @@
+import type { CampaignStatus, Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import { logAuditEvent } from './audit.service'
 import { AUDIT_ACTIONS } from '../constants/auditActions'
+import * as Scope from './commercialScope.service'
 
 type AuditActor = { id: number; email?: string; role?: string }
 
@@ -61,13 +63,13 @@ export const getAllCampaigns = async (filters: {
   search?: string
   page?: number
   limit?: number
-}) => {
+}, actor?: AuditActor) => {
   const { status, search, page = 1, limit = 20 } = filters
   const safePage = Math.max(1, Number(page) || 1)
   const safeLimit = Math.max(1, Math.min(Number(limit) || 20, 100))
 
-  const where: Record<string, unknown> = {}
-  if (status) where.status = status
+  const where: Prisma.CampaignWhereInput = await Scope.campaignScopeWhere(actor)
+  if (status) where.status = status as CampaignStatus
   if (search) {
     where.OR = [
       { name:        { contains: search, mode: 'insensitive' } },
@@ -128,11 +130,11 @@ export const getAllCampaigns = async (filters: {
   }
 }
 
-export const getCampaignById = async (id: number) => {
+export const getCampaignById = async (id: number, actor?: AuditActor) => {
   if (!Number.isFinite(id)) throw new AppError('Invalid campaign id', 400)
 
-  const campaign = await prisma.campaign.findUnique({
-    where: { id },
+  const campaign = await prisma.campaign.findFirst({
+    where: { id, ...(await Scope.campaignScopeWhere(actor)) },
     include: {
       _count: { select: { contacts: true, calls: true } }
     }
@@ -171,13 +173,16 @@ export const createCampaign = async (data: {
   startTime?: string
   endTime?: string
   timezone?: string
-}) => {
+}, actor?: AuditActor) => {
   if (!data.name || !String(data.name).trim()) {
     throw new AppError('Campaign name is required', 400)
   }
 
+  const commercialAccountId = await Scope.primaryAccountIdForActor(actor)
+
   return prisma.campaign.create({
     data: {
+      commercialAccountId,
       name:         String(data.name).trim(),
       description:  data.description?.trim() || null,
       mode:         normalizeMode(data.mode),
@@ -210,8 +215,10 @@ export const updateCampaign = async (
     endTime: string
     timezone: string
   }>
+,
+  actor?: AuditActor
 ) => {
-  const existing = await prisma.campaign.findUnique({ where: { id } })
+  const existing = await prisma.campaign.findFirst({ where: { id, ...(await Scope.campaignScopeWhere(actor)) } })
   if (!existing) throw new AppError('Campaign not found', 404)
 
   const updateData: Record<string, unknown> = {}
@@ -239,8 +246,10 @@ export const updateCampaign = async (
   })
 }
 
-export const deleteCampaign = async (id: number) => {
-  const existing = await prisma.campaign.findUnique({ where: { id } })
+export const deleteCampaign = async (id: number,
+  actor?: AuditActor
+) => {
+  const existing = await prisma.campaign.findFirst({ where: { id, ...(await Scope.campaignScopeWhere(actor)) } })
   if (!existing) throw new AppError('Campaign not found', 404)
 
   if (existing.status === 'ACTIVE') {
@@ -269,7 +278,7 @@ export const updateCampaignStatus = async (
   actor?: AuditActor,
   ipAddress?: string | null
 ) => {
-  const existing = await prisma.campaign.findUnique({ where: { id } })
+  const existing = await prisma.campaign.findFirst({ where: { id, ...(await Scope.campaignScopeWhere(actor)) } })
   if (!existing) throw new AppError('Campaign not found', 404)
 
   const allowed: Record<string, string[]> = {
@@ -300,12 +309,15 @@ export const updateCampaignStatus = async (
   return campaign
 }
 
-export const cloneCampaign = async (id: number) => {
-  const original = await prisma.campaign.findUnique({ where: { id } })
+export const cloneCampaign = async (id: number, actor?: AuditActor) => {
+  const original = await prisma.campaign.findFirst({ where: { id, ...(await Scope.campaignScopeWhere(actor)) } })
   if (!original) throw new AppError('Campaign not found', 404)
+
+  const commercialAccountId = await Scope.primaryAccountIdForActor(actor)
 
   return prisma.campaign.create({
     data: {
+      commercialAccountId,
       name:         `${original.name} (Copy)`,
       description:  original.description ?? undefined,
       mode:         normalizeMode(original.mode),
@@ -322,9 +334,10 @@ export const cloneCampaign = async (id: number) => {
   })
 }
 
-export const getCampaignStats = async () => {
+export const getCampaignStats = async (actor?: AuditActor) => {
   const grouped = await prisma.campaign.groupBy({
     by: ['status'],
+    where: await Scope.campaignScopeWhere(actor),
     _count: { _all: true },
   })
 
