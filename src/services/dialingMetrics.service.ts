@@ -1,7 +1,14 @@
+import type { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
+import * as Scope from './commercialScope.service'
 
-export const getDialingMetrics = async (campaignId?: number) => {
-  const where = campaignId ? { campaignId } : {}
+export const getDialingMetrics = async (campaignId?: number, actor?: Scope.ScopeActor) => {
+  const safeCampaignId = campaignId && Number.isFinite(campaignId) ? Number(campaignId) : undefined
+  const scopeWhere = await Scope.callScopeWhere(actor)
+  const where: Prisma.CallWhereInput = {
+    ...scopeWhere,
+    ...(safeCampaignId ? { campaignId: safeCampaignId } : {}),
+  }
 
   const totalCalls = await prisma.call.count({ where })
   const completedCalls = await prisma.call.count({ where: { ...where, status: 'COMPLETED' } })
@@ -30,7 +37,7 @@ export const getDialingMetrics = async (campaignId?: number) => {
 
   return {
     generatedAt: new Date().toISOString(),
-    campaignId: campaignId || null,
+    campaignId: safeCampaignId || null,
     totals: {
       totalCalls,
       completedCalls,

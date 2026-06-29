@@ -5,7 +5,7 @@ import * as AdvancedDialingController from '../controllers/advancedDialing.contr
 const router = Router()
 
 router.use(authenticate)
-router.use(authorize('ADMIN', 'SUPERVISOR'))
+router.use(authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'))
 
 router.get('/metrics', AdvancedDialingController.metrics)
 router.post('/pacing/preview', AdvancedDialingController.pacingPreview)
