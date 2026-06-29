@@ -5,6 +5,7 @@ import { applyDispositionRetry } from './retry.service'
 import { logAuditEvent } from './audit.service'
 import { AUDIT_ACTIONS } from '../constants/auditActions'
 import { emitToDashboard } from '../socket/socket.server'
+import * as Scope from './commercialScope.service'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -54,7 +55,7 @@ const ensureCanAccessCall = (
 ) => {
   if (!user) throw new AppError('Unauthorized', 401)
 
-  if (user.role === 'ADMIN' || user.role === 'SUPERVISOR') return
+  if (user.role === 'ADMIN' || user.role === 'CUSTOMER_ADMIN' || user.role === 'SUPERVISOR') return
   if (user.role === 'AGENT' && call.agentId === user.id) return
 
   throw new AppError(
@@ -91,12 +92,14 @@ const toDashboardCallPayload = (call: {
   status: call.status || undefined,
 })
 
-const getOrCreateSystemCampaign = async () => {
-  const existing = await prisma.campaign.findFirst({ where: { name: '__sip__' } })
+const getOrCreateSystemCampaign = async (user?: CallAccessUser) => {
+  const commercialAccountId = await Scope.primaryAccountIdForActor(user)
+  const existing = await prisma.campaign.findFirst({ where: { name: '__sip__', commercialAccountId } })
   if (existing) return existing
 
   return prisma.campaign.create({
     data: {
+      commercialAccountId,
       name: '__sip__',
       description: 'System campaign for SIP softphone calls',
       status: 'ACTIVE',
@@ -129,7 +132,7 @@ export const createSipCallLog = async (input: SipCallLogInput, user?: CallAccess
   const remoteNumber = input.remoteNumber.trim()
   if (!remoteNumber) throw new AppError('remoteNumber is required', 400)
 
-  const campaign = await getOrCreateSystemCampaign()
+  const campaign = await getOrCreateSystemCampaign(user)
   const contact = await getOrCreateSipContact(remoteNumber, campaign.id)
   const startedAt = input.startedAt || new Date()
   const agentId = input.agentId ?? user?.id ?? null
@@ -174,7 +177,7 @@ export const listCalls = async (
   const { campaignId, agentId, status, direction, startDate, endDate } = filters
   const { page, limit } = clampPagination(filters.page, filters.limit)
 
-  const where: Prisma.CallWhereInput = {}
+  const where: Prisma.CallWhereInput = await Scope.callScopeWhere(user)
 
   if (campaignId !== undefined) where.campaignId = campaignId
   if (agentId !== undefined) where.agentId = agentId
@@ -227,6 +230,7 @@ export const getCallById = async (id: number, user?: CallAccessUser) => {
   })
 
   if (!call) throw new AppError('Call not found', 404)
+  await Scope.assertCallAccess(id, user)
   ensureCanAccessCall(call, user, 'view')
   return call
 }
@@ -256,6 +260,7 @@ export const updateCallDisposition = async (
   })
 
   if (!existing) throw new AppError('Call not found', 404)
+  await Scope.assertCallAccess(id, user)
   ensureCanAccessCall(existing, user, 'update')
 
   const callbackAgentId = existing.agentId ?? user?.id
@@ -384,6 +389,7 @@ export const markCallEnded = async (
   })
 
   if (!existing) throw new AppError('Call not found', 404)
+  await Scope.assertCallAccess(id, user)
   ensureCanAccessCall(existing, user, 'update')
 
   const endedAt = existing.endedAt ?? endedAtInput ?? new Date()
@@ -421,8 +427,9 @@ export const getCallsForContact = async (
     select: { id: true },
   })
   if (!contact) throw new AppError('Contact not found', 404)
+  await Scope.assertContactAccess(contactId, user)
 
-  const where: Prisma.CallWhereInput = { contactId }
+  const where: Prisma.CallWhereInput = { contactId, ...(await Scope.callScopeWhere(user)) }
   if (user?.role === 'AGENT') where.agentId = user.id
 
   return prisma.call.findMany({

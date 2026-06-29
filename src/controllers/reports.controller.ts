@@ -20,7 +20,7 @@ export const getSummary = async (
       to:         parseDate(to),
       campaignId: campaignId ? Number(campaignId) : undefined,
       agentId:    agentId    ? Number(agentId)    : undefined,
-    })
+    }, req.user)
     return sendSuccess(res, result, 'Summary fetched')
   } catch (err) { return next(err) }
 }
@@ -37,7 +37,7 @@ export const getCallTrend = async (
       from:        parseDate(from),
       to:          parseDate(to),
       granularity: granularity as 'day' | 'week' | undefined,
-    })
+    }, req.user)
     return sendSuccess(res, result, 'Call trend fetched')
   } catch (err) { return next(err) }
 }
@@ -50,7 +50,7 @@ export const getCampaignBreakdown = async (
     const result = await ReportsService.getCampaignBreakdown({
       from: parseDate(from),
       to:   parseDate(to),
-    })
+    }, req.user)
     return sendSuccess(res, result, 'Campaign breakdown fetched')
   } catch (err) { return next(err) }
 }
@@ -63,7 +63,7 @@ export const getAgentBreakdown = async (
     const result = await ReportsService.getAgentBreakdown({
       from: parseDate(from),
       to:   parseDate(to),
-    })
+    }, req.user)
     return sendSuccess(res, result, 'Agent breakdown fetched')
   } catch (err) { return next(err) }
 }

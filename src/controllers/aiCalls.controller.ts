@@ -5,6 +5,7 @@ import {
   listAiCallLogRecords,
   upsertAiCallLogFromRetellWebhook,
 } from '../services/aiCallLog.service'
+import * as Scope from '../services/commercialScope.service'
 import {
   createRetellOutboundPhoneCall,
   getRetellPhoneCall,
@@ -162,7 +163,7 @@ const SAFE_ASSISTANT_ID_REGEX = /^[A-Za-z0-9_-]{1,120}$/
 
 type AiCallRequestWithUser = Request & {
   user?: {
-    id?: number
+    id: number
     email?: string
     role?: string
   }
@@ -338,10 +339,12 @@ export async function startOutboundAiCall(req: Request, res: Response, next: Nex
     let storedAiCallLog = null
 
     try {
+      const commercialAccountId = await Scope.primaryAccountIdForActor(actor)
       storedAiCallLog = await createAiCallLogFromOutboundRequest({
         call,
         request: {
           actorId: typeof actor?.id === 'number' ? actor.id : undefined,
+          commercialAccountId,
           toNumber,
           fromNumber,
           transferDestination,
@@ -487,6 +490,7 @@ export async function listAiCallLogs(req: Request, res: Response, next: NextFunc
     const limit = getIntegerQuery(req.query.limit, 25)
     const includeRaw = getBooleanQuery(req.query.includeRaw) === true
 
+    const actor = (req as AiCallRequestWithUser).user
     const result = await listAiCallLogRecords({
       page,
       limit,
@@ -496,7 +500,7 @@ export async function listAiCallLogs(req: Request, res: Response, next: NextFunc
       successful: getBooleanQuery(req.query.successful),
       direction: getStringField(req.query.direction) || undefined,
       includeRaw,
-    })
+    }, actor)
 
     res.status(200).json({
       success: true,
@@ -524,7 +528,8 @@ export async function getAiCallLog(req: Request, res: Response, next: NextFuncti
       return
     }
 
-    const item = await getAiCallLogRecordById(id, includeRaw)
+    const actor = (req as AiCallRequestWithUser).user
+    const item = await getAiCallLogRecordById(id, includeRaw, actor)
 
     if (!item) {
       res.status(404).json({

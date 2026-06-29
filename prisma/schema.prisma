@@ -111,9 +111,13 @@ model Campaign {
   lastSchedulerCheckAt DateTime?
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt
+  commercialAccountId  Int?
+  commercialAccount    CommercialAccount? @relation(fields: [commercialAccountId], references: [id], onDelete: SetNull)
   contacts             Contact[]
   calls                Call[]
   spoofingNumbers      SpoofingNumber[]
+
+  @@index([commercialAccountId])
 }
 
 model Contact {
@@ -395,6 +399,7 @@ model CommercialAccount {
   paymentRequests          CommercialPaymentRequest[]
   billingAlerts            CommercialBillingAlert[]
   memberships              CommercialAccountMembership[]
+  campaigns                Campaign[]
 
   @@index([status])
   @@index([createdAt])
@@ -597,6 +602,8 @@ model AiCallLog {
   id                    Int       @id @default(autoincrement())
   provider              String    @default("retell")
   providerCallId        String    @unique
+  commercialAccountId    Int?
+  requestedByUserId      Int?
   lastEvent             String?
   callStatus            String?
   callType              String?

@@ -8,7 +8,7 @@ type CallerIdScope = 'all' | 'user' | 'campaign'
 
 const E164_RE = /^\+[1-9]\d{1,14}$/
 const PLATFORM_ROLES = new Set(['SUPER_ADMIN', 'ADMIN'])
-const CUSTOMER_CONTROL_ROLES = new Set(['CUSTOMER_ADMIN', 'MANAGER'])
+const CUSTOMER_CONTROL_ROLES = new Set(['CUSTOMER_ADMIN', 'SUPERVISOR', 'MANAGER'])
 const metaPrefix = 'ptdt:'
 
 const normalizeNumber = (value: string) => value.replace(/[\s().-]/g, '').trim()
@@ -117,7 +117,7 @@ export const dynamicCallerIdService = {
     return {
       account: { id: account.id, name: account.name, code: account.code, status: account.status, currency: account.currency },
       addonActive: addon?.status === 'ACTIVE',
-      membership: membership ? { accountRole: membership.accountRole, canUseDynamicCallerId: Boolean((membership as any).canUseDynamicCallerId), canRequestCallerIds: isPlatformActor(actor) || isCustomerControlActor(actor) } : { accountRole: 'PLATFORM', canUseDynamicCallerId: true, canRequestCallerIds: true },
+      membership: membership ? { accountRole: membership.accountRole, canUseDynamicCallerId: Boolean((membership as any).canUseDynamicCallerId) || isCustomerControlActor(actor), canRequestCallerIds: isPlatformActor(actor) || isCustomerControlActor(actor) } : { accountRole: 'PLATFORM', canUseDynamicCallerId: true, canRequestCallerIds: true },
       balanceState: Number(account.wallet?.availableBalance || 0) <= 0 && account.hardStopEnabled ? 'HARD_STOP' : 'OK',
       callerIds,
       availableNumbers: callerIds.filter(item => item.isUsable),
@@ -205,7 +205,7 @@ export const dynamicCallerIdService = {
     if (!selectedCallerIdId) return null
     const membership = await getMembershipForActor(actor, null)
     if (!membership?.accountId) throw new AppError('Commercial account membership is required for Dynamic Caller ID', 403)
-    if (!isPlatformActor(actor) && !(membership as any).canUseDynamicCallerId) throw new AppError('Your account is not allowed to use Dynamic Caller ID', 403)
+    if (!isPlatformActor(actor) && !(membership as any).canUseDynamicCallerId && !isCustomerControlActor(actor)) throw new AppError('Your account is not allowed to use Dynamic Caller ID', 403)
     await assertDynamicCallerIdEnabled(membership.accountId)
     const record = await prisma.spoofingNumber.findUnique({ where: { id: Number(selectedCallerIdId) } })
     if (!record) throw new AppError('Selected Caller ID not found', 404)

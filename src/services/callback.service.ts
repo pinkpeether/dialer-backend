@@ -1,5 +1,8 @@
 import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
+import * as Scope from './commercialScope.service'
+
+type Actor = Scope.ScopeActor
 
 export type CallbackStatus = 'PENDING' | 'COMPLETED' | 'RESCHEDULED' | 'CANCELLED'
 
@@ -9,7 +12,9 @@ export const createCallback = async (data: {
   agentId: number
   scheduledAt: string
   notes?: string | null
-}) => {
+}, actor?: Actor) => {
+  if (data.contactId) await Scope.assertContactAccess(data.contactId, actor)
+  if (data.callId) await Scope.assertCallAccess(data.callId, actor)
   const scheduledAt = new Date(data.scheduledAt)
   if (isNaN(scheduledAt.getTime())) throw new AppError('Invalid scheduledAt date', 400)
 
@@ -37,12 +42,20 @@ export const getAllCallbacks = async (filters: {
   agentId?: number
   page?: number
   limit?: number
-}) => {
+}, actor?: Actor) => {
   const { status, from, to, agentId, page = 1, limit = 30 } = filters
 
   const where: Record<string, unknown> = {}
   if (status) where.status = status
   if (agentId) where.agentId = agentId
+  if (!Scope.isPlatformActor(actor)) {
+    const accountIds = await Scope.getActorAccountIds(actor)
+    where.OR = [
+      { agent: { commercialMemberships: { some: { accountId: { in: accountIds.length ? accountIds : [-1] }, status: 'ACTIVE' } } } },
+      { call: { campaign: { commercialAccountId: { in: accountIds.length ? accountIds : [-1] } } } },
+      { contact: { campaign: { commercialAccountId: { in: accountIds.length ? accountIds : [-1] } } } },
+    ]
+  }
   if (from || to) {
     where.scheduledAt = {
       ...(from ? { gte: new Date(from) } : {}),
@@ -81,10 +94,14 @@ export const updateCallback = async (
     scheduledAt?: string
     notes?: string | null
   },
-  requestingUserId: number
+  requestingUserId: number,
+  actor?: Actor
 ) => {
   const existing = await prisma.callback.findUnique({ where: { id } })
   if (!existing) throw new AppError('Callback not found', 404)
+  if (existing.callId) await Scope.assertCallAccess(existing.callId, actor)
+  else if (existing.contactId) await Scope.assertContactAccess(existing.contactId, actor)
+  else if (!Scope.isPlatformActor(actor) && existing.agentId !== actor?.id) throw new AppError('Callback not found for this commercial account', 404)
 
   const updateData: Record<string, unknown> = {}
   if (data.status) updateData.status = data.status

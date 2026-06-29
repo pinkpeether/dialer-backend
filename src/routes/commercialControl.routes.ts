@@ -7,8 +7,8 @@ const router = Router()
 router.use(authenticate)
 
 // Customer/admin-readable commercial state.
-router.get('/summary', authorize('ADMIN', 'SUPERVISOR'), CommercialControlController.getSummary)
-router.get('/catalog', authorize('ADMIN', 'SUPERVISOR'), CommercialControlController.getCatalog)
+router.get('/summary', authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'), CommercialControlController.getSummary)
+router.get('/catalog', authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'), CommercialControlController.getCatalog)
 
 // PTDT/Admin control actions.
 router.post('/admin/seed-catalog', authorize('ADMIN'), CommercialControlController.seedCatalog)

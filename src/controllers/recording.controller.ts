@@ -38,7 +38,7 @@ export const list = async (req: AuthRequest, res: Response, next: NextFunction) 
       search: req.query.search as string | undefined,
       page: req.query.page ? Number(req.query.page) : 1,
       limit: req.query.limit ? Number(req.query.limit) : 50,
-    })
+    }, req.user)
     return sendSuccess(res, result, 'Recordings fetched')
   } catch (err) {
     return next(err)
@@ -47,7 +47,7 @@ export const list = async (req: AuthRequest, res: Response, next: NextFunction) 
 
 export const detail = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const recording = await RecordingService.getRecording(Number(req.params.callId))
+    const recording = await RecordingService.getRecording(Number(req.params.callId), req.user)
     return sendSuccess(res, recording, 'Recording fetched')
   } catch (err) {
     return next(err)
@@ -106,9 +106,9 @@ export const stream = async (req: AuthRequest, res: Response, next: NextFunction
   }
 }
 
-export const health = async (_req: AuthRequest, res: Response, next: NextFunction) => {
+export const health = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await RecordingService.getRecordingStorageHealth()
+    const result = await RecordingService.getRecordingStorageHealth(req.user)
     return sendSuccess(res, result, 'Recording storage health fetched')
   } catch (err) {
     return next(err)

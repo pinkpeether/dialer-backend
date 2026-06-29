@@ -6,7 +6,7 @@ import * as PermissionReviewController from '../controllers/permissionReview.con
 const router = Router()
 
 router.use(authenticate)
-router.use(authorize('ADMIN', 'SUPERVISOR'))
+router.use(authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'))
 
 router.get('/', SupportDiagnosticsController.getDiagnostics)
 router.get('/download', SupportDiagnosticsController.downloadDiagnostics)

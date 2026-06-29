@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
+import * as Scope from './commercialScope.service'
 
 type RegionBucket = {
   key: string
@@ -125,13 +126,16 @@ const buildHourlyHeatmap = (calls: Array<{ startedAt: Date; status: string; disp
   }))
 }
 
-export const getLiveMonitoringAdvancedViews = async (campaignId?: number) => {
+export const getLiveMonitoringAdvancedViews = async (campaignId?: number, actor?: Scope.ScopeActor) => {
   const safeCampaignId = campaignId && Number.isFinite(campaignId) ? Number(campaignId) : undefined
   const campaignFilter: Prisma.CallWhereInput = safeCampaignId ? { campaignId: safeCampaignId } : {}
+  const callScope = await Scope.callScopeWhere(actor)
+  const userScope = await Scope.userScopeWhere(actor)
   const last24Hours = getSinceDate(24)
 
   const liveCalls = await prisma.call.findMany({
     where: {
+      ...callScope,
       ...campaignFilter,
       status: { in: [...ACTIVE_CALL_STATUSES] as never },
     },
@@ -154,6 +158,7 @@ export const getLiveMonitoringAdvancedViews = async (campaignId?: number) => {
 
   const recentCalls = await prisma.call.findMany({
     where: {
+      ...callScope,
       ...campaignFilter,
       startedAt: { gte: last24Hours },
     },
@@ -173,6 +178,7 @@ export const getLiveMonitoringAdvancedViews = async (campaignId?: number) => {
 
   const agents = await prisma.user.findMany({
     where: {
+      ...userScope,
       role: 'AGENT',
       isActive: true,
     },
@@ -192,6 +198,7 @@ export const getLiveMonitoringAdvancedViews = async (campaignId?: number) => {
       },
       calls: {
         where: {
+          ...callScope,
           startedAt: { gte: last24Hours },
         },
         select: {

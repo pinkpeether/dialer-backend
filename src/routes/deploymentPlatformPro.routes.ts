@@ -9,7 +9,7 @@ import {
 const router = Router()
 
 router.use(authenticate)
-router.use(authorize('ADMIN', 'SUPERVISOR'))
+router.use(authorize('ADMIN'))
 
 router.get('/overview', getDeploymentPlatformOverviewController)
 router.get('/checklist', getDeploymentPlatformChecklistController)

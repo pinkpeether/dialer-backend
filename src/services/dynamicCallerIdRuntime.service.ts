@@ -4,9 +4,11 @@ import { logAuditEvent } from './audit.service'
 
 type Actor = { id: number; email?: string; role?: string }
 const PLATFORM_ROLES = new Set(['SUPER_ADMIN', 'ADMIN'])
+const CUSTOMER_CALLER_ID_ROLES = new Set(['CUSTOMER_ADMIN', 'SUPERVISOR', 'MANAGER'])
 const metaPrefix = 'ptdt:'
 
 const isPlatformActor = (actor?: Actor) => Boolean(actor?.role && PLATFORM_ROLES.has(String(actor.role)))
+const canUseByRole = (actor?: Actor) => Boolean(actor?.role && CUSTOMER_CALLER_ID_ROLES.has(String(actor.role)))
 
 const parseMeta = (providerRef?: string | null) => {
   const fallback = { accountId: null as number | null, status: 'PENDING' }
@@ -49,7 +51,7 @@ export async function resolveDynamicCallerIdForCall(actor: Actor, selectedCaller
       where: { userId: actor.id, accountId: meta.accountId, status: 'ACTIVE' },
     })
     if (!membership) throw new AppError('Selected Caller ID does not belong to your customer account', 403)
-    if (!membership.canUseDynamicCallerId) throw new AppError('Your account is not allowed to use Dynamic Caller ID', 403)
+    if (!membership.canUseDynamicCallerId && !canUseByRole(actor)) throw new AppError('Your account is not allowed to use Dynamic Caller ID', 403)
   }
 
   await assertAccountEnabled(meta.accountId)

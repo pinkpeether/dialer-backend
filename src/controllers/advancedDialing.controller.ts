@@ -7,7 +7,7 @@ import { evaluateAbandonmentGuardrails } from '../services/abandonmentGuardrails
 
 export const metrics = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await getDialingMetrics(req.query.campaignId ? Number(req.query.campaignId) : undefined)
+    const result = await getDialingMetrics(req.query.campaignId ? Number(req.query.campaignId) : undefined, req.user)
     return sendSuccess(res, result, 'Dialing metrics fetched')
   } catch (err) {
     return next(err)

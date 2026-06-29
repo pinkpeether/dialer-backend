@@ -1,6 +1,8 @@
 import os from 'os'
+import type { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { getRuntimeMetricsSnapshot } from './runtimeMetrics.service'
+import * as Scope from './commercialScope.service'
 
 const sinceHours = (hours: number) => new Date(Date.now() - hours * 60 * 60 * 1000)
 
@@ -14,6 +16,19 @@ const groupRows = (rows: Array<Record<string, unknown> & { _count: { _all: numbe
 
 const countValues = (values: Record<string, number>) => {
   return Object.values(values).reduce((sum, count) => sum + count, 0)
+}
+
+const callbackScopeWhere = async (actor?: Scope.ScopeActor): Promise<Prisma.CallbackWhereInput> => {
+  if (Scope.isPlatformActor(actor)) return {}
+  const accountIds = await Scope.getActorAccountIds(actor)
+  const ids = accountIds.length ? accountIds : [-1]
+  return {
+    OR: [
+      { agent: { commercialMemberships: { some: { accountId: { in: ids }, status: 'ACTIVE' } } } },
+      { call: { campaign: { commercialAccountId: { in: ids } } } },
+      { contact: { campaign: { commercialAccountId: { in: ids } } } },
+    ],
+  }
 }
 
 const checkDb = async () => {
@@ -30,12 +45,16 @@ const checkDb = async () => {
   }
 }
 
-export const getMonitoringSummary = async () => {
+export const getMonitoringSummary = async (actor?: Scope.ScopeActor) => {
   const generatedAt = new Date()
   const last24h = sinceHours(24)
   const next24h = new Date(Date.now() + 24 * 60 * 60 * 1000)
 
   const runtime = getRuntimeMetricsSnapshot()
+  const callScope = await Scope.callScopeWhere(actor)
+  const campaignScope = await Scope.campaignScopeWhere(actor)
+  const userScope = await Scope.userScopeWhere(actor)
+  const callbackScope = await callbackScopeWhere(actor)
 
   // Keep this route under frontend timeout. Supabase pooler is configured with
   // connection_limit=5 locally, so these independent reads can run in a small
@@ -54,21 +73,23 @@ export const getMonitoringSummary = async () => {
     checkDb(),
     prisma.user.groupBy({
       by: ['status'],
-      where: { isActive: true },
+      where: { isActive: true, role: 'AGENT', ...userScope },
       _count: { _all: true },
     }),
     prisma.campaign.groupBy({
       by: ['status'],
+      where: campaignScope,
       _count: { _all: true },
     }),
     prisma.call.groupBy({
       by: ['status'],
-      where: { startedAt: { gte: last24h } },
+      where: { ...callScope, startedAt: { gte: last24h } },
       _count: { _all: true },
     }),
     prisma.call.groupBy({
       by: ['disposition'],
       where: {
+        ...callScope,
         startedAt: { gte: last24h },
         disposition: { not: null },
       },
@@ -76,18 +97,20 @@ export const getMonitoringSummary = async () => {
     }),
     prisma.callback.count({
       where: {
+        ...callbackScope,
         status: { in: ['PENDING', 'RESCHEDULED'] },
         scheduledAt: { lt: generatedAt },
       },
     }),
     prisma.callback.count({
       where: {
+        ...callbackScope,
         status: { in: ['PENDING', 'RESCHEDULED'] },
         scheduledAt: { gte: generatedAt, lte: next24h },
       },
     }),
     prisma.campaign.findMany({
-      where: { status: 'ACTIVE' },
+      where: { ...campaignScope, status: 'ACTIVE' },
       select: {
         id: true,
         name: true,
@@ -100,7 +123,7 @@ export const getMonitoringSummary = async () => {
       take: 25,
     }),
     prisma.call.findMany({
-      where: { startedAt: { gte: last24h } },
+      where: { ...callScope, startedAt: { gte: last24h } },
       select: {
         id: true,
         status: true,

@@ -7,7 +7,6 @@ import {
   updateCampaignSchema,
 } from '../validators/campaign.validator';
 import Joi from 'joi';
-import { queueManager } from '../services/queueManager';
 
 const router = Router();
 
@@ -16,28 +15,28 @@ router.use(authenticate);
 // Stats
 router.get(
   '/stats',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   CampaignController.getCampaignStats,
 );
 
 // List all
 router.get(
   '/',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   CampaignController.getAllCampaigns,
 );
 
 // Single campaign
 router.get(
   '/:id',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   CampaignController.getCampaignById,
 );
 
 // Create
 router.post(
   '/',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   validate(createCampaignSchema),
   CampaignController.createCampaign,
 );
@@ -45,7 +44,7 @@ router.post(
 // Update
 router.put(
   '/:id',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   validate(updateCampaignSchema),
   CampaignController.updateCampaign,
 );
@@ -53,14 +52,14 @@ router.put(
 // Delete
 router.delete(
   '/:id',
-  authorize('ADMIN'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   CampaignController.deleteCampaign,
 );
 
 // Status change (start/pause/complete)
 router.patch(
   '/:id/status',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   validate(
     Joi.object({
       status: Joi.string()
@@ -68,32 +67,13 @@ router.patch(
         .required(),
     }),
   ),
-  async (req, res, next) => {
-    try {
-      const { id } = req.params;
-      const { status } = req.body as { status: string };
-
-      // When campaign is started (ACTIVE) → init queue
-      if (status === 'ACTIVE') {
-        await queueManager.initQueue(parseInt(id, 10));
-      }
-
-      // When campaign is paused or completed → clear queue + reset contacts
-      if (status === 'PAUSED' || status === 'COMPLETED') {
-        await queueManager.clear(parseInt(id, 10));
-      }
-
-      return CampaignController.updateCampaignStatus(req, res, next);
-    } catch (err) {
-      next(err);
-    }
-  },
+  CampaignController.updateCampaignStatus,
 );
 
 // Clone campaign
 router.post(
   '/:id/clone',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   CampaignController.cloneCampaign,
 );
 

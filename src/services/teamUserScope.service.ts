@@ -93,6 +93,15 @@ export const listTeamUsers = async (filters: {
   const visibleIds = await getVisibleTeamUserIds(actor)
   const where = teamWhere(filters, visibleIds)
 
+  // Operational team pages should not list customer owners/main Customer Admins.
+  // Customer Admin sees Supervisors + Agents. Supervisor sees Agents only.
+  if (!isPlatform(actor)) {
+    const role = String(actor?.role || '').toUpperCase()
+    where.role = role === 'SUPERVISOR'
+      ? 'AGENT'
+      : { in: ['SUPERVISOR', 'AGENT'] }
+  }
+
   const [agents, total] = await Promise.all([
     prisma.user.findMany({
       where,
@@ -135,7 +144,8 @@ const accountRoleForTeamRole = (role?: string) => {
 
 const autoAttachToActorAccount = async (createdUserId: number, actor?: Actor, role?: string) => {
   if (isPlatform(actor)) return
-  const accountIds = await getActorAccountIds(actor, true)
+  const actorRole = String(actor?.role || '').toUpperCase()
+  const accountIds = await getActorAccountIds(actor, actorRole !== 'SUPERVISOR')
   if (!accountIds.length) throw new AppError('Your account is not allowed to create team users. Ask PTDT Support to assign account membership.', 403)
 
   const accountId = accountIds[0]
@@ -167,6 +177,9 @@ export const createTeamUser = async (data: {
   phone?: string
 }, actor?: Actor) => {
   const role = normalizeRole(data.role) || 'AGENT'
+  if (String(actor?.role || '').toUpperCase() === 'SUPERVISOR' && role !== 'AGENT') {
+    throw new AppError('Supervisor can create Agent users only.', 403)
+  }
   const agent = await AgentService.createAgent({ ...data, role })
   await autoAttachToActorAccount(agent.id, actor, role)
   return agent
@@ -174,16 +187,49 @@ export const createTeamUser = async (data: {
 
 export const updateTeamUser = async (id: number, data: Record<string, unknown>, actor?: Actor) => {
   await assertTeamUserAccess(actor, id)
+
+  if (!isPlatform(actor)) {
+    const actorRole = String(actor?.role || '').toUpperCase()
+    const target = await prisma.user.findUnique({ where: { id }, select: { role: true } })
+    if (!target) throw new AppError('Team user not found', 404)
+
+    if (actorRole === 'SUPERVISOR' && target.role !== 'AGENT') {
+      throw new AppError('Supervisor can edit Agent users only.', 403)
+    }
+    if (actorRole === 'CUSTOMER_ADMIN' && !['SUPERVISOR', 'AGENT'].includes(String(target.role))) {
+      throw new AppError('Customer Admin can edit Supervisor and Agent users only.', 403)
+    }
+
+    const allowedData: { name?: string; phone?: string; extension?: string } = {}
+    if (typeof data.name === 'string' && data.name.trim()) allowedData.name = data.name.trim()
+    if (typeof data.phone === 'string') allowedData.phone = data.phone.trim() || undefined
+    if (typeof data.extension === 'string') allowedData.extension = data.extension.trim() || undefined
+
+    if (!Object.keys(allowedData).length) {
+      throw new AppError('No editable team user fields were provided.', 400)
+    }
+
+    return AgentService.updateAgent(id, allowedData as never)
+  }
+
   return AgentService.updateAgent(id, data as never)
 }
 
 export const deactivateTeamUser = async (id: number, actor?: Actor) => {
   await assertTeamUserAccess(actor, id)
+  if (String(actor?.role || '').toUpperCase() === 'SUPERVISOR') {
+    const target = await prisma.user.findUnique({ where: { id }, select: { role: true } })
+    if (target?.role !== 'AGENT') throw new AppError('Supervisor can manage Agent users only.', 403)
+  }
   return AgentService.deleteAgent(id, actor?.id)
 }
 
 export const updateTeamStatus = async (id: number, status: TeamStatus, actor?: Actor) => {
   await assertTeamUserAccess(actor, id)
+  if (String(actor?.role || '').toUpperCase() === 'SUPERVISOR') {
+    const target = await prisma.user.findUnique({ where: { id }, select: { role: true } })
+    if (target?.role !== 'AGENT') throw new AppError('Supervisor can manage Agent users only.', 403)
+  }
   return AgentService.updateAgentStatus(id, status)
 }
 
@@ -194,7 +240,7 @@ export const resetTeamPassword = async (id: number, password: string, actor?: Ac
 
 export const getTeamStats = async (actor?: Actor) => {
   const visibleIds = await getVisibleTeamUserIds(actor)
-  const where = teamWhere({ isActive: true }, visibleIds)
+  const where = teamWhere({ isActive: true, role: 'AGENT' }, visibleIds)
   const grouped = await prisma.user.groupBy({ by: ['status'], where, _count: { _all: true } })
   const counts = grouped.reduce<Record<string, number>>((acc, row) => {
     acc[row.status] = row._count._all

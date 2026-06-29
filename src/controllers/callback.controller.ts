@@ -27,7 +27,7 @@ export const getAllCallbacks = async (
       agentId,
       page:    page  ? Number(page)  : 1,
       limit:   limit ? Number(limit) : 30,
-    })
+    }, req.user)
     return sendSuccess(res, result, 'Callbacks fetched')
   } catch (err) { return next(err) }
 }
@@ -45,7 +45,7 @@ export const createCallback = async (
       agentId:     req.user!.id,
       scheduledAt: String(scheduledAt),
       notes:       typeof notes === 'string' ? notes : null,
-    })
+    }, req.user)
     return sendSuccess(res, callback, 'Callback scheduled', 201)
   } catch (err) { return next(err) }
 }
@@ -66,7 +66,8 @@ export const updateCallback = async (
     const updated = await CallbackService.updateCallback(
       id,
       { status, scheduledAt, notes },
-      req.user!.id
+      req.user!.id,
+      req.user
     )
     return sendSuccess(res, updated, 'Callback updated')
   } catch (err) { return next(err) }

@@ -14,7 +14,7 @@ export const capabilities = async (req: AuthRequest, res: Response, next: NextFu
 
 export const activeCalls = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await CallControlService.getActiveCalls()
+    const result = await CallControlService.getActiveCalls(req.user)
     return sendSuccess(res, result, 'Active calls fetched')
   } catch (err) {
     return next(err)

@@ -12,7 +12,7 @@ router.get('/capabilities',
 )
 
 router.get('/active-calls',
-  authorize('ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
   CallControlController.activeCalls
 )
 
