@@ -4,6 +4,7 @@ import { AuthRequest } from '../middleware/auth'
 import { sendSuccess } from '../utils/response'
 import { AppError } from '../middleware/errorHandler'
 import * as RecordingService from '../services/recording.service'
+import { listRecordingsWithAccounts } from '../services/recordingAccountList.service'
 
 const getDate = (value: unknown): Date | undefined => {
   if (typeof value !== 'string' || !value.trim()) return undefined
@@ -30,7 +31,7 @@ const ipAddress = (req: AuthRequest) => {
 
 export const list = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await RecordingService.listRecordings({
+    const result = await listRecordingsWithAccounts({
       from: getDate(req.query.from),
       to: getDate(req.query.to),
       agentId: req.query.agentId ? Number(req.query.agentId) : undefined,
