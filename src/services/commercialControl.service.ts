@@ -389,7 +389,14 @@ async function evaluateBalanceAlert(accountId: number) {
 }
 
 async function getAccountOrDefault(accountId?: number | string | null) {
-  if (!accountId) return ensureDefaultAccount()
+  if (!accountId) {
+    const account = await prisma.commercialAccount.findFirst({
+      where: { status: { not: 'ARCHIVED' } },
+      orderBy: { createdAt: 'asc' },
+    })
+    if (!account) throw new AppError('No commercial account found. Create a commercial account first.', 404)
+    return account
+  }
 
   const id = parseId(accountId)
   const account = await prisma.commercialAccount.findUnique({ where: { id } })
@@ -411,9 +418,8 @@ function buildBalanceState(account: any, wallet: any) {
 export const commercialControlService = {
   async seedCatalog(actor?: Actor) {
     await seedCatalog()
-    const account = await ensureDefaultAccount()
-    await audit(actor, 'COMMERCIAL_CATALOG_SEEDED', 'CommercialControl', account.id, { defaultAccountCode: account.code })
-    return this.getSummary(account.id)
+    await audit(actor, 'COMMERCIAL_CATALOG_SEEDED', 'CommercialControl', null, { defaultAccountCreated: false })
+    return this.getCatalog()
   },
 
   async getCatalog() {
@@ -497,7 +503,6 @@ export const commercialControlService = {
   },
 
   async listAccounts(options: { includeArchived?: boolean } = {}) {
-    await ensureDefaultAccount()
     return prisma.commercialAccount.findMany({
       where: options.includeArchived ? undefined : { status: { not: 'ARCHIVED' } },
       include: {

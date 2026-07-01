@@ -93,7 +93,7 @@ const getLifecycleSummary = async (accountId: number) => withLatestSubscriptionS
 
 export const seedCatalog = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    return sendSuccess(res, await withLatestSubscriptionStatus(await commercialControlService.seedCatalog(req.user)), 'Commercial catalog seeded')
+    return sendSuccess(res, await commercialControlService.seedCatalog(req.user), 'Commercial catalog seeded')
   } catch (err) {
     return next(err)
   }
