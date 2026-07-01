@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import * as CallController from '../controllers/call.controller'
+import * as CallListAccountController from '../controllers/callListAccount.controller'
 import { authenticate, authorize } from '../middleware/auth'
 import { validate } from '../middleware/validate'
 import { updateDispositionSchema } from '../validators/call.validator'
@@ -11,7 +12,7 @@ router.use(authenticate)
 router.get(
   '/',
   authorize('SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'CUSTOMER_ADMIN', 'MANAGER', 'AGENT'),
-  CallController.listCalls
+  CallListAccountController.listCalls
 )
 
 router.get(

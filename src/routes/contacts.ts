@@ -32,7 +32,7 @@ router.get('/stats',
 
 // List
 router.get('/',
-  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR', 'AGENT'),
   ContactController.getAllContacts
 )
 
@@ -44,7 +44,7 @@ router.get('/:id/calls',
 
 // Single
 router.get('/:id',
-  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR', 'AGENT'),
   ContactController.getContactById
 )
 

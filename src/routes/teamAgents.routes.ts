@@ -2,6 +2,7 @@ import { Router } from 'express'
 import type { Response, NextFunction } from 'express'
 import * as AgentService from '../services/agent.service'
 import * as TeamUserScope from '../services/teamUserScopeV2.service'
+import { listTeamUsersWithAccounts } from '../services/teamUserAccountList.service'
 import { permanentlyRemoveTeamUser } from '../services/teamUserMaintenance.service'
 import { authenticate, authorize, authorizePlatformAdmin } from '../middleware/auth'
 import type { AuthRequest } from '../middleware/auth'
@@ -46,7 +47,7 @@ router.patch('/me', authorize(...selfRoles), async (req: AuthRequest, res: Respo
 router.get('/', authorize(...viewerRoles), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { role, status, search, page, limit, isActive } = req.query
-    const result = await TeamUserScope.listTeamUsers({ role: role as string, status: status as string, search: search as string, isActive: isActive !== undefined ? isActive === 'true' : undefined, page: page ? Number(page) : 1, limit: limit ? Number(limit) : 20 }, req.user)
+    const result = await listTeamUsersWithAccounts({ role: role as string, status: status as string, search: search as string, isActive: isActive !== undefined ? isActive === 'true' : undefined, page: page ? Number(page) : 1, limit: limit ? Number(limit) : 20 }, req.user)
     return sendSuccess(res, result, 'Team users fetched')
   } catch (err) { return next(err) }
 })

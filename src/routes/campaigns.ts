@@ -22,14 +22,14 @@ router.get(
 // List all
 router.get(
   '/',
-  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR', 'AGENT'),
   CampaignController.getAllCampaigns,
 );
 
 // Single campaign
 router.get(
   '/:id',
-  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR', 'AGENT'),
   CampaignController.getCampaignById,
 );
 

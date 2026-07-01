@@ -6,314 +6,110 @@ import * as Scope from './commercialScope.service'
 
 type Actor = Scope.ScopeActor
 
-// ── Phone number normalizer ──
-const normalizePhone = (phone: string): string => {
-  return phone.replace(/[\s\-\(\)\.]/g, '').trim()
-}
+const commercialAccountSelect = { id: true, name: true, code: true, status: true } as const
+const normalizePhone = (phone: string): string => phone.replace(/[\s\-\(\)\.]/g, '').trim()
+const isDNC = async (phone: string): Promise<boolean> => Boolean(await prisma.dNCList.findUnique({ where: { phone: normalizePhone(phone) } }))
 
-// ── DNC check ──
-const isDNC = async (phone: string): Promise<boolean> => {
-  const entry = await prisma.dNCList.findUnique({
-    where: { phone: normalizePhone(phone) }
-  })
-  return !!entry
-}
-
-export const getAllContacts = async (filters: {
-  campaignId?: number
-  status?: string
-  search?: string
-  page?: number
-  limit?: number
-}, actor?: Actor) => {
-  const { campaignId, status, search, page = 1, limit = 50 } = filters
-
+const contactWhere = async (filters: { campaignId?: number; commercialAccountId?: number; status?: string; search?: string }, actor?: Actor): Promise<Prisma.ContactWhereInput> => {
   const where: Prisma.ContactWhereInput = await Scope.contactScopeWhere(actor)
-  if (campaignId) where.campaignId = campaignId
-  if (status)     where.status     = status as ContactStatus
-  if (search) {
-    where.OR = [
-      { name:    { contains: search, mode: 'insensitive' } },
-      { phone:   { contains: search                      } },
-      { email:   { contains: search, mode: 'insensitive' } },
-      { company: { contains: search, mode: 'insensitive' } },
-    ]
-  }
+  const and: Prisma.ContactWhereInput[] = []
+  if (filters.commercialAccountId) and.push({ campaign: { commercialAccountId: filters.commercialAccountId } })
+  if (and.length) where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND as Prisma.ContactWhereInput] : []), ...and]
+  if (filters.campaignId) where.campaignId = filters.campaignId
+  if (filters.status) where.status = filters.status as ContactStatus
+  if (filters.search) where.OR = [{ name: { contains: filters.search, mode: 'insensitive' } }, { phone: { contains: filters.search } }, { email: { contains: filters.search, mode: 'insensitive' } }, { company: { contains: filters.search, mode: 'insensitive' } }]
+  return where
+}
 
+export const getAllContacts = async (filters: { campaignId?: number; commercialAccountId?: number; status?: string; search?: string; page?: number; limit?: number }, actor?: Actor) => {
+  const { page = 1, limit = 50 } = filters
+  const where = await contactWhere(filters, actor)
   const [contacts, total] = await Promise.all([
-    prisma.contact.findMany({
-      where,
-      select: {
-        id: true, name: true, phone: true, email: true,
-        company: true, status: true, retryCount: true,
-        lastCalledAt: true, campaignId: true, createdAt: true,
-        _count: { select: { calls: true } }
-      },
-      orderBy: { createdAt: 'desc' },
-      skip:  (page - 1) * limit,
-      take:  limit,
-    }),
+    prisma.contact.findMany({ where, select: { id: true, name: true, phone: true, email: true, company: true, status: true, retryCount: true, lastCalledAt: true, campaignId: true, createdAt: true, campaign: { select: { id: true, name: true, commercialAccount: { select: commercialAccountSelect } } }, _count: { select: { calls: true } } }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
     prisma.contact.count({ where }),
   ])
-
-  return {
-    contacts,
-    pagination: {
-      total, page, limit,
-      totalPages: Math.ceil(total / limit),
-    }
-  }
+  return { contacts: contacts.map(contact => ({ ...contact, commercialAccount: contact.campaign?.commercialAccount || null })), pagination: { total, page, limit, totalPages: Math.ceil(total / limit) } }
 }
 
 export const getContactById = async (id: number, actor?: Actor) => {
-  const contact = await prisma.contact.findFirst({
-    where: { id, ...(await Scope.contactScopeWhere(actor)) },
-    include: {
-      calls: {
-        orderBy: { startedAt: 'desc' },
-        take: 20,
-        select: {
-          id: true, status: true, duration: true,
-          disposition: true,
-          recordingUrl: true, startedAt: true, endedAt: true,
-          agent: { select: { name: true, agentCode: true } }
-        }
-      },
-      campaign: { select: { id: true, name: true } }
-    }
-  })
+  const contact = await prisma.contact.findFirst({ where: { id, ...(await Scope.contactScopeWhere(actor)) }, include: { calls: { orderBy: { startedAt: 'desc' }, take: 20, select: { id: true, status: true, duration: true, disposition: true, recordingUrl: true, startedAt: true, endedAt: true, agent: { select: { name: true, agentCode: true } } } }, campaign: { select: { id: true, name: true, commercialAccount: { select: commercialAccountSelect } } } } })
   if (!contact) throw new AppError('Contact not found', 404)
-  return contact
+  return { ...contact, commercialAccount: contact.campaign?.commercialAccount || null }
 }
 
-export const createContact = async (data: {
-  name: string
-  phone: string
-  email?: string
-  company?: string
-  notes?: string
-  campaignId: number
-}, actor?: Actor) => {
+export const createContact = async (data: { name: string; phone: string; email?: string; company?: string; notes?: string; campaignId: number }, actor?: Actor) => {
   await Scope.assertCampaignAccess(data.campaignId, actor)
-
-  // Check campaign exists
-  const campaign = await prisma.campaign.findUnique({
-    where: { id: data.campaignId }
-  })
+  const campaign = await prisma.campaign.findUnique({ where: { id: data.campaignId } })
   if (!campaign) throw new AppError('Campaign not found', 404)
-
   const phone = normalizePhone(data.phone)
-
-  // DNC check
-  if (await isDNC(phone)) {
-    throw new AppError('This number is on the DNC list', 400)
-  }
-
-  // Duplicate check within same campaign
-  const duplicate = await prisma.contact.findFirst({
-    where: { phone, campaignId: data.campaignId }
-  })
+  if (await isDNC(phone)) throw new AppError('This number is on the DNC list', 400)
+  const duplicate = await prisma.contact.findFirst({ where: { phone, campaignId: data.campaignId } })
   if (duplicate) throw new AppError('Contact already exists in this campaign', 409)
-
-  return await prisma.contact.create({
-    data: { ...data, phone }
-  })
+  return prisma.contact.create({ data: { ...data, phone } })
 }
 
-export const updateContact = async (
-  id: number,
-  data: Partial<{
-    name: string
-    phone: string
-    email: string
-    company: string
-    notes: string
-    status: string
-  }>
-,
-  actor?: Actor
-) => {
+export const updateContact = async (id: number, data: Partial<{ name: string; phone: string; email: string; company: string; notes: string; status: string }>, actor?: Actor) => {
   await Scope.assertContactAccess(id, actor)
   const existing = await prisma.contact.findUnique({ where: { id } })
   if (!existing) throw new AppError('Contact not found', 404)
-
   if (data.phone) data.phone = normalizePhone(data.phone)
-
-  return await prisma.contact.update({
-  where: { id },
-  data: data as any,
-  })
+  return prisma.contact.update({ where: { id }, data: data as any })
 }
 
-export const deleteContact = async (id: number,
-  actor?: Actor
-) => {
+export const deleteContact = async (id: number, actor?: Actor) => {
   await Scope.assertContactAccess(id, actor)
   const existing = await prisma.contact.findUnique({ where: { id } })
   if (!existing) throw new AppError('Contact not found', 404)
   await prisma.contact.delete({ where: { id } })
 }
 
-// ── CSV BULK UPLOAD ──
-export const uploadCSV = async (
-  campaignId: number,
-  fileBuffer: Buffer,
-  actor?: Actor
-): Promise<{
-  imported: number
-  duplicates: number
-  dncSkipped: number
-  errors: number
-  total: number
-}> => {
+export const uploadCSV = async (campaignId: number, fileBuffer: Buffer, actor?: Actor): Promise<{ imported: number; duplicates: number; dncSkipped: number; errors: number; total: number }> => {
   await Scope.assertCampaignAccess(campaignId, actor)
-
-  // Check campaign
-  const campaign = await prisma.campaign.findUnique({
-    where: { id: campaignId }
-  })
+  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } })
   if (!campaign) throw new AppError('Campaign not found', 404)
-
-  // Parse CSV
   let records: Record<string, string>[]
-  try {
-    records = parse(fileBuffer, {
-      columns:          true,
-      skip_empty_lines: true,
-      trim:             true,
-    })
-  } catch {
-    throw new AppError('Invalid CSV format', 400)
-  }
-
-  if (records.length === 0) {
-    throw new AppError('CSV file is empty', 400)
-  }
-
-  // Get existing phones in this campaign
-  const existingContacts = await prisma.contact.findMany({
-    where:  { campaignId },
-    select: { phone: true }
-  })
+  try { records = parse(fileBuffer, { columns: true, skip_empty_lines: true, trim: true }) } catch { throw new AppError('Invalid CSV format', 400) }
+  if (records.length === 0) throw new AppError('CSV file is empty', 400)
+  const existingContacts = await prisma.contact.findMany({ where: { campaignId }, select: { phone: true } })
   const existingPhones = new Set(existingContacts.map(c => c.phone))
-
-  // Get all DNC numbers
   const dncList = await prisma.dNCList.findMany({ select: { phone: true } })
-  const dncSet  = new Set(dncList.map(d => d.phone))
-
-  let imported   = 0
-  let duplicates = 0
-  let dncSkipped = 0
-  let errors     = 0
-
-  const toInsert: {
-    name: string
-    phone: string
-    email?: string
-    company?: string
-    notes?: string
-    campaignId: number
-    status: 'PENDING'
-  }[] = []
-
+  const dncSet = new Set(dncList.map(d => d.phone))
+  let imported = 0, duplicates = 0, dncSkipped = 0, errors = 0
+  const toInsert: { name: string; phone: string; email?: string; company?: string; notes?: string; campaignId: number; status: 'PENDING' }[] = []
   const seenInBatch = new Set<string>()
-
   for (const row of records) {
     try {
-      // Support flexible column names
-      const name    = row.name    || row.Name    || row.NAME    || 'Unknown'
-      const rawPhone = row.phone  || row.Phone   || row.PHONE   ||
-                       row.mobile || row.Mobile  || row.number  || row.Number || ''
-      const email   = row.email   || row.Email   || ''
+      const name = row.name || row.Name || row.NAME || 'Unknown'
+      const rawPhone = row.phone || row.Phone || row.PHONE || row.mobile || row.Mobile || row.number || row.Number || ''
+      const email = row.email || row.Email || ''
       const company = row.company || row.Company || ''
-      const notes   = row.notes   || row.Notes   || ''
-
+      const notes = row.notes || row.Notes || ''
       if (!rawPhone) { errors++; continue }
-
       const phone = normalizePhone(rawPhone)
-      if (!phone)   { errors++; continue }
-
-      // DNC check
+      if (!phone) { errors++; continue }
       if (dncSet.has(phone)) { dncSkipped++; continue }
-
-      // Duplicate in DB
       if (existingPhones.has(phone)) { duplicates++; continue }
-
-      // Duplicate in current batch
       if (seenInBatch.has(phone)) { duplicates++; continue }
-
       seenInBatch.add(phone)
-      toInsert.push({
-        name:       name.trim(),
-        phone,
-        email:      email   || undefined,
-        company:    company || undefined,
-        notes:      notes   || undefined,
-        campaignId,
-        status:     'PENDING',
-      })
-    } catch {
-      errors++
-    }
+      toInsert.push({ name: name.trim(), phone, email: email || undefined, company: company || undefined, notes: notes || undefined, campaignId, status: 'PENDING' })
+    } catch { errors++ }
   }
-
-  // Bulk insert in batches of 500
-  const BATCH_SIZE = 500
-  for (let i = 0; i < toInsert.length; i += BATCH_SIZE) {
-    const batch = toInsert.slice(i, i + BATCH_SIZE)
-    await prisma.contact.createMany({ data: batch, skipDuplicates: true })
-    imported += batch.length
+  const batchSize = 500
+  for (let i = 0; i < toInsert.length; i += batchSize) {
+    const result = await prisma.contact.createMany({ data: toInsert.slice(i, i + batchSize), skipDuplicates: true })
+    imported += result.count
   }
-
-  return {
-    imported,
-    duplicates,
-    dncSkipped,
-    errors,
-    total: records.length,
-  }
+  return { imported, duplicates, dncSkipped, errors, total: records.length }
 }
 
-export const addToDNC = async (phone: string, reason?: string) => {
-  const normalized = normalizePhone(phone)
-  return await prisma.dNCList.upsert({
-    where:  { phone: normalized },
-    update: { reason },
-    create: { phone: normalized, reason },
-  })
-}
+export const addToDNC = async (phone: string, reason?: string) => prisma.dNCList.create({ data: { phone: normalizePhone(phone), reason: reason || 'Manual add' } })
 
 export const getContactStats = async (campaignId?: number, actor?: Actor) => {
   const where: Prisma.ContactWhereInput = await Scope.contactScopeWhere(actor)
   if (campaignId) where.campaignId = campaignId
-
-  const grouped = await prisma.contact.groupBy({
-    by: ['status'],
-    where,
-    _count: { _all: true },
-  })
-
-  const countByStatus = grouped.reduce<Record<string, number>>((acc, item) => {
-    acc[item.status] = item._count._all
-    return acc
-  }, {})
-
-  const pending = countByStatus.PENDING ?? 0
-  const calling = countByStatus.CALLING ?? 0
-  const answered = countByStatus.ANSWERED ?? 0
-  const noAnswer = countByStatus.NO_ANSWER ?? 0
-  const busy = countByStatus.BUSY ?? 0
-  const done = countByStatus.DONE ?? 0
-  const dnc = countByStatus.DNC ?? 0
-  const total = grouped.reduce((sum, item) => sum + item._count._all, 0)
-
-  const dialed      = total - pending
-  const answerRate  = dialed > 0
-    ? Math.round(((answered + done) / dialed) * 100) : 0
-
-  return {
-    total, pending, calling, answered,
-    noAnswer, busy, done, dnc,
-    dialed, answerRate
-  }
+  const grouped = await prisma.contact.groupBy({ by: ['status'], where, _count: { _all: true } })
+  const counts = grouped.reduce<Record<string, number>>((acc, row) => { acc[row.status] = row._count._all; return acc }, {})
+  const total = Object.values(counts).reduce((sum, count) => sum + count, 0)
+  const answered = (counts.ANSWERED || 0) + (counts.CONTACTED || 0) + (counts.DONE || 0)
+  return { total, pending: counts.PENDING || 0, answered, noAnswer: (counts.NO_ANSWER || 0) + (counts.BUSY || 0) + (counts.VOICEMAIL || 0), dnc: counts.DNC || 0, answerRate: total > 0 ? Math.round((answered / total) * 100) : 0 }
 }
