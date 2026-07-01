@@ -7,50 +7,32 @@ import * as Scope from './commercialScope.service'
 type Actor = Scope.ScopeActor
 
 const commercialAccountSelect = { id: true, name: true, code: true, status: true } as const
-
-// ── Phone number normalizer ──
 const normalizePhone = (phone: string): string => phone.replace(/[\s\-\(\)\.]/g, '').trim()
+const isDNC = async (phone: string): Promise<boolean> => Boolean(await prisma.dNCList.findUnique({ where: { phone: normalizePhone(phone) } }))
 
-// ── DNC check ──
-const isDNC = async (phone: string): Promise<boolean> => {
-  const entry = await prisma.dNCList.findUnique({ where: { phone: normalizePhone(phone) } })
-  return !!entry
+const contactWhere = async (filters: { campaignId?: number; commercialAccountId?: number; status?: string; search?: string }, actor?: Actor): Promise<Prisma.ContactWhereInput> => {
+  const where: Prisma.ContactWhereInput = await Scope.contactScopeWhere(actor)
+  const and: Prisma.ContactWhereInput[] = []
+  if (filters.commercialAccountId) and.push({ campaign: { commercialAccountId: filters.commercialAccountId } })
+  if (and.length) where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND as Prisma.ContactWhereInput] : []), ...and]
+  if (filters.campaignId) where.campaignId = filters.campaignId
+  if (filters.status) where.status = filters.status as ContactStatus
+  if (filters.search) where.OR = [{ name: { contains: filters.search, mode: 'insensitive' } }, { phone: { contains: filters.search } }, { email: { contains: filters.search, mode: 'insensitive' } }, { company: { contains: filters.search, mode: 'insensitive' } }]
+  return where
 }
 
 export const getAllContacts = async (filters: { campaignId?: number; commercialAccountId?: number; status?: string; search?: string; page?: number; limit?: number }, actor?: Actor) => {
-  const { campaignId, commercialAccountId, status, search, page = 1, limit = 50 } = filters
-  const where: Prisma.ContactWhereInput = await Scope.contactScopeWhere(actor)
-  if (campaignId) where.campaignId = campaignId
-  if (commercialAccountId) where.campaign = { commercialAccountId }
-  if (status) where.status = status as ContactStatus
-  if (search) where.OR = [{ name: { contains: search, mode: 'insensitive' } }, { phone: { contains: search } }, { email: { contains: search, mode: 'insensitive' } }, { company: { contains: search, mode: 'insensitive' } }]
-
+  const { page = 1, limit = 50 } = filters
+  const where = await contactWhere(filters, actor)
   const [contacts, total] = await Promise.all([
-    prisma.contact.findMany({
-      where,
-      select: {
-        id: true, name: true, phone: true, email: true, company: true, status: true, retryCount: true, lastCalledAt: true, campaignId: true, createdAt: true,
-        campaign: { select: { id: true, name: true, commercialAccount: { select: commercialAccountSelect } } },
-        _count: { select: { calls: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-      skip: (page - 1) * limit,
-      take: limit,
-    }),
+    prisma.contact.findMany({ where, select: { id: true, name: true, phone: true, email: true, company: true, status: true, retryCount: true, lastCalledAt: true, campaignId: true, createdAt: true, campaign: { select: { id: true, name: true, commercialAccount: { select: commercialAccountSelect } } }, _count: { select: { calls: true } } }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
     prisma.contact.count({ where }),
   ])
-
   return { contacts: contacts.map(contact => ({ ...contact, commercialAccount: contact.campaign?.commercialAccount || null })), pagination: { total, page, limit, totalPages: Math.ceil(total / limit) } }
 }
 
 export const getContactById = async (id: number, actor?: Actor) => {
-  const contact = await prisma.contact.findFirst({
-    where: { id, ...(await Scope.contactScopeWhere(actor)) },
-    include: {
-      calls: { orderBy: { startedAt: 'desc' }, take: 20, select: { id: true, status: true, duration: true, disposition: true, recordingUrl: true, startedAt: true, endedAt: true, agent: { select: { name: true, agentCode: true } } } },
-      campaign: { select: { id: true, name: true, commercialAccount: { select: commercialAccountSelect } } },
-    },
-  })
+  const contact = await prisma.contact.findFirst({ where: { id, ...(await Scope.contactScopeWhere(actor)) }, include: { calls: { orderBy: { startedAt: 'desc' }, take: 20, select: { id: true, status: true, duration: true, disposition: true, recordingUrl: true, startedAt: true, endedAt: true, agent: { select: { name: true, agentCode: true } } } }, campaign: { select: { id: true, name: true, commercialAccount: { select: commercialAccountSelect } } } } })
   if (!contact) throw new AppError('Contact not found', 404)
   return { ...contact, commercialAccount: contact.campaign?.commercialAccount || null }
 }
@@ -81,17 +63,13 @@ export const deleteContact = async (id: number, actor?: Actor) => {
   await prisma.contact.delete({ where: { id } })
 }
 
-// ── CSV BULK UPLOAD ──
 export const uploadCSV = async (campaignId: number, fileBuffer: Buffer, actor?: Actor): Promise<{ imported: number; duplicates: number; dncSkipped: number; errors: number; total: number }> => {
   await Scope.assertCampaignAccess(campaignId, actor)
   const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } })
   if (!campaign) throw new AppError('Campaign not found', 404)
-
   let records: Record<string, string>[]
-  try { records = parse(fileBuffer, { columns: true, skip_empty_lines: true, trim: true }) }
-  catch { throw new AppError('Invalid CSV format', 400) }
+  try { records = parse(fileBuffer, { columns: true, skip_empty_lines: true, trim: true }) } catch { throw new AppError('Invalid CSV format', 400) }
   if (records.length === 0) throw new AppError('CSV file is empty', 400)
-
   const existingContacts = await prisma.contact.findMany({ where: { campaignId }, select: { phone: true } })
   const existingPhones = new Set(existingContacts.map(c => c.phone))
   const dncList = await prisma.dNCList.findMany({ select: { phone: true } })
@@ -99,7 +77,6 @@ export const uploadCSV = async (campaignId: number, fileBuffer: Buffer, actor?: 
   let imported = 0, duplicates = 0, dncSkipped = 0, errors = 0
   const toInsert: { name: string; phone: string; email?: string; company?: string; notes?: string; campaignId: number; status: 'PENDING' }[] = []
   const seenInBatch = new Set<string>()
-
   for (const row of records) {
     try {
       const name = row.name || row.Name || row.NAME || 'Unknown'
@@ -117,14 +94,11 @@ export const uploadCSV = async (campaignId: number, fileBuffer: Buffer, actor?: 
       toInsert.push({ name: name.trim(), phone, email: email || undefined, company: company || undefined, notes: notes || undefined, campaignId, status: 'PENDING' })
     } catch { errors++ }
   }
-
   const batchSize = 500
   for (let i = 0; i < toInsert.length; i += batchSize) {
-    const batch = toInsert.slice(i, i + batchSize)
-    const result = await prisma.contact.createMany({ data: batch, skipDuplicates: true })
+    const result = await prisma.contact.createMany({ data: toInsert.slice(i, i + batchSize), skipDuplicates: true })
     imported += result.count
   }
-
   return { imported, duplicates, dncSkipped, errors, total: records.length }
 }
 
