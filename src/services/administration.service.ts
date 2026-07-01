@@ -26,8 +26,8 @@ export type AddAccountMemberInput = {
 export type UpdateAccountMemberInput = Partial<Omit<AddAccountMemberInput, 'userId'>>
 
 const PLATFORM_ADMIN_ROLES = new Set(['SUPER_ADMIN', 'ADMIN'])
-const CUSTOMER_ASSIGNABLE_ROLES = new Set(['CUSTOMER_ADMIN', 'MANAGER', 'SUPERVISOR', 'AGENT'])
-const ACCOUNT_ROLES = new Set<AccountRole>(['OWNER', 'ADMIN', 'BILLING', 'SUPERVISOR', 'AGENT'])
+const CUSTOMER_ASSIGNABLE_ROLES = new Set(['CUSTOMER_ADMIN', 'SUPERVISOR', 'AGENT'])
+const ACCOUNT_ROLES = new Set<AccountRole>(['OWNER', 'SUPERVISOR', 'AGENT'])
 const MEMBERSHIP_STATUSES = new Set<MembershipStatus>(['ACTIVE', 'INACTIVE', 'SUSPENDED'])
 
 const parseId = (value: number | string, label = 'id') => {
@@ -252,7 +252,7 @@ export const administrationService = {
         memberships,
         activeAccounts: accounts.filter(item => item.status === 'ACTIVE').length,
         platformAdmins: users.filter(item => ['SUPER_ADMIN', 'ADMIN'].includes(item.role)).length,
-        customerAdmins: users.filter(item => ['CUSTOMER_ADMIN', 'MANAGER'].includes(item.role)).length,
+        customerAdmins: users.filter(item => item.role === 'CUSTOMER_ADMIN').length,
       },
     }
   },
