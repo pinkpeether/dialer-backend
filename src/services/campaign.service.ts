@@ -58,6 +58,13 @@ const normalizeNumber = (value: unknown, fallback: number, min: number, max: num
   return Math.max(min, Math.min(max, Math.floor(numeric)))
 }
 
+const commercialAccountSelect = {
+  id: true,
+  name: true,
+  code: true,
+  status: true,
+} as const
+
 export const getAllCampaigns = async (filters: {
   status?: string
   search?: string
@@ -82,6 +89,7 @@ export const getAllCampaigns = async (filters: {
   const campaigns = await prisma.campaign.findMany({
     where,
     include: {
+      commercialAccount: { select: commercialAccountSelect },
       _count: {
         select: {
           contacts: true,
@@ -136,6 +144,7 @@ export const getCampaignById = async (id: number, actor?: AuditActor) => {
   const campaign = await prisma.campaign.findFirst({
     where: { id, ...(await Scope.campaignScopeWhere(actor)) },
     include: {
+      commercialAccount: { select: commercialAccountSelect },
       _count: { select: { contacts: true, calls: true } }
     }
   })
