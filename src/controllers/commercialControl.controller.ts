@@ -116,9 +116,10 @@ export const getSummary = async (req: AuthRequest, res: Response, next: NextFunc
   }
 }
 
-export const listAccounts = async (_req: AuthRequest, res: Response, next: NextFunction) => {
+export const listAccounts = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    return sendSuccess(res, await commercialControlService.listAccounts(), 'Commercial accounts fetched')
+    const includeArchived = String(req.query.includeArchived || '').toLowerCase() === 'true'
+    return sendSuccess(res, await commercialControlService.listAccounts({ includeArchived }), 'Commercial accounts fetched')
   } catch (err) {
     return next(err)
   }

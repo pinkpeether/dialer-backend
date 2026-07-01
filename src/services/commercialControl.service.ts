@@ -496,9 +496,10 @@ export const commercialControlService = {
     }
   },
 
-  async listAccounts() {
+  async listAccounts(options: { includeArchived?: boolean } = {}) {
     await ensureDefaultAccount()
     return prisma.commercialAccount.findMany({
+      where: options.includeArchived ? undefined : { status: { not: 'ARCHIVED' } },
       include: {
         wallet: true,
         subscriptions: { include: { plan: true }, orderBy: { startsAt: 'desc' }, take: 1 },
