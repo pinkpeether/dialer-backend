@@ -6,6 +6,89 @@ type Actor = Scope.ScopeActor
 
 export type CallbackStatus = 'PENDING' | 'COMPLETED' | 'RESCHEDULED' | 'CANCELLED'
 
+const commercialAccountSelect = {
+  id: true,
+  name: true,
+  code: true,
+  status: true,
+} as const
+
+const callbackInclude = {
+  contact: {
+    select: {
+      id: true,
+      name: true,
+      phone: true,
+      campaign: {
+        select: {
+          id: true,
+          name: true,
+          commercialAccount: { select: commercialAccountSelect },
+        },
+      },
+    },
+  },
+  call: {
+    select: {
+      id: true,
+      status: true,
+      disposition: true,
+      campaign: {
+        select: {
+          id: true,
+          name: true,
+          commercialAccount: { select: commercialAccountSelect },
+        },
+      },
+    },
+  },
+  agent: {
+    select: {
+      id: true,
+      name: true,
+      agentCode: true,
+      commercialMemberships: {
+        where: { status: 'ACTIVE' },
+        select: { account: { select: commercialAccountSelect } },
+        orderBy: { createdAt: 'asc' },
+      },
+    },
+  },
+} as const
+
+const cleanAccounts = (accounts: Array<{ id: number; name: string; code: string; status: string } | null | undefined>) => {
+  const seen = new Set<number>()
+  return accounts.filter((account): account is { id: number; name: string; code: string; status: string } => {
+    if (!account || seen.has(account.id)) return false
+    seen.add(account.id)
+    return true
+  })
+}
+
+const shapeCallback = (callback: any) => {
+  const agentAccounts = callback.agent?.commercialMemberships?.map((item: any) => item.account) || []
+  const commercialAccounts = cleanAccounts([
+    callback.call?.campaign?.commercialAccount,
+    callback.contact?.campaign?.commercialAccount,
+    ...agentAccounts,
+  ])
+
+  const agent = callback.agent
+    ? {
+        id: callback.agent.id,
+        name: callback.agent.name,
+        agentCode: callback.agent.agentCode,
+      }
+    : null
+
+  return {
+    ...callback,
+    agent,
+    commercialAccounts,
+    commercialAccount: commercialAccounts[0] || null,
+  }
+}
+
 export const createCallback = async (data: {
   contactId?: number | null
   callId?: number | null
@@ -18,7 +101,7 @@ export const createCallback = async (data: {
   const scheduledAt = new Date(data.scheduledAt)
   if (isNaN(scheduledAt.getTime())) throw new AppError('Invalid scheduledAt date', 400)
 
-  return await prisma.callback.create({
+  const callback = await prisma.callback.create({
     data: {
       contactId:   data.contactId  ?? null,
       callId:      data.callId     ?? null,
@@ -27,12 +110,10 @@ export const createCallback = async (data: {
       notes:       data.notes ?? null,
       status:      'PENDING',
     },
-    include: {
-      contact: { select: { id: true, name: true, phone: true } },
-      call:    { select: { id: true, status: true, disposition: true } },
-      agent:   { select: { id: true, name: true, agentCode: true } },
-    },
+    include: callbackInclude,
   })
+
+  return shapeCallback(callback)
 }
 
 export const getAllCallbacks = async (filters: {
@@ -65,19 +146,15 @@ export const getAllCallbacks = async (filters: {
 
   const callbacks = await prisma.callback.findMany({
     where,
-    include: {
-      contact: { select: { id: true, name: true, phone: true } },
-      call:    { select: { id: true, status: true, disposition: true } },
-      agent:   { select: { id: true, name: true, agentCode: true } },
-    },
-    orderBy: { scheduledAt: 'asc' },
+    include: callbackInclude,
+    orderBy: { scheduledAt: 'desc' },
     skip:  (page - 1) * limit,
     take:  limit,
   })
   const total = await prisma.callback.count({ where })
 
   return {
-    callbacks,
+    callbacks: callbacks.map(shapeCallback),
     pagination: {
       total,
       page,
@@ -112,12 +189,11 @@ export const updateCallback = async (
     updateData.scheduledAt = d
   }
 
-  return await prisma.callback.update({
+  const callback = await prisma.callback.update({
     where: { id },
     data: updateData,
-    include: {
-      contact: { select: { id: true, name: true, phone: true } },
-      agent:   { select: { id: true, name: true, agentCode: true } },
-    },
+    include: callbackInclude,
   })
+
+  return shapeCallback(callback)
 }
