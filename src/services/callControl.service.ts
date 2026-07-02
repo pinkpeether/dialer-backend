@@ -62,7 +62,7 @@ const getCall = async (payload: Record<string, unknown>, actor?: Actor) => {
 
 const assertControlAllowed = (actor: Actor, call: Awaited<ReturnType<typeof getCall>>) => {
   const role = String(actor.role || '').toUpperCase()
-  if (role === 'ADMIN' || role === 'CUSTOMER_ADMIN' || role === 'SUPERVISOR') return
+  if (role === 'SUPER_ADMIN' || role === 'ADMIN' || role === 'CUSTOMER_ADMIN' || role === 'SUPERVISOR') return
 
   if (role === 'AGENT' && call.agentId === actor.id) return
 

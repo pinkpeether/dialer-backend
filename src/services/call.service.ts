@@ -55,8 +55,9 @@ const ensureCanAccessCall = (
 ) => {
   if (!user) throw new AppError('Unauthorized', 401)
 
-  if (user.role === 'ADMIN' || user.role === 'CUSTOMER_ADMIN' || user.role === 'SUPERVISOR') return
-  if (user.role === 'AGENT' && call.agentId === user.id) return
+  const role = String(user.role || '').toUpperCase()
+  if (role === 'SUPER_ADMIN' || role === 'ADMIN' || role === 'CUSTOMER_ADMIN' || role === 'SUPERVISOR') return
+  if (role === 'AGENT' && call.agentId === user.id) return
 
   throw new AppError(
     action === 'view'
