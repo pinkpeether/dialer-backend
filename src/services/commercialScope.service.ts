@@ -52,8 +52,37 @@ export const contactScopeWhere = async (actor?: ScopeActor): Promise<Prisma.Cont
 
 export const callScopeWhere = async (actor?: ScopeActor): Promise<Prisma.CallWhereInput> => {
   if (isPlatformActor(actor)) return {}
+
   const accountIds = await getActorAccountIds(actor)
-  return { campaign: { commercialAccountId: { in: accountIds.length ? accountIds : emptyAccountIds } } }
+  const accountScopedWhere: Prisma.CallWhereInput = {
+    campaign: { commercialAccountId: { in: accountIds.length ? accountIds : emptyAccountIds } },
+  }
+
+  const role = String(actor?.role || '').trim().toUpperCase()
+
+  if (role === 'CUSTOMER_ADMIN') return accountScopedWhere
+
+  if (role === 'SUPERVISOR') {
+    return {
+      ...accountScopedWhere,
+      OR: [
+        { agentId: actor!.id },
+        { agent: { role: 'AGENT' } },
+      ],
+    }
+  }
+
+  if (role === 'AGENT') {
+    return {
+      ...accountScopedWhere,
+      agentId: actor!.id,
+    }
+  }
+
+  return {
+    ...accountScopedWhere,
+    agentId: actor!.id,
+  }
 }
 
 export const userScopeWhere = async (actor?: ScopeActor): Promise<Prisma.UserWhereInput> => {
