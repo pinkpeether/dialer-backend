@@ -58,6 +58,8 @@ const normalizeNumber = (value: unknown, fallback: number, min: number, max: num
   return Math.max(min, Math.min(max, Math.floor(numeric)))
 }
 
+const SYSTEM_CAMPAIGN_NAMES = ['__adhoc__', '__sip__']
+
 const commercialAccountSelect = {
   id: true,
   name: true,
@@ -76,6 +78,7 @@ export const getAllCampaigns = async (filters: {
   const safeLimit = Math.max(1, Math.min(Number(limit) || 20, 100))
 
   const where: Prisma.CampaignWhereInput = await Scope.campaignScopeWhere(actor)
+  where.name = { notIn: SYSTEM_CAMPAIGN_NAMES }
   if (status) where.status = status as CampaignStatus
   if (search) {
     where.OR = [
@@ -346,7 +349,7 @@ export const cloneCampaign = async (id: number, actor?: AuditActor) => {
 export const getCampaignStats = async (actor?: AuditActor) => {
   const grouped = await prisma.campaign.groupBy({
     by: ['status'],
-    where: await Scope.campaignScopeWhere(actor),
+    where: { ...(await Scope.campaignScopeWhere(actor)), name: { notIn: SYSTEM_CAMPAIGN_NAMES } },
     _count: { _all: true },
   })
 

@@ -26,8 +26,8 @@ export type AddAccountMemberInput = {
 export type UpdateAccountMemberInput = Partial<Omit<AddAccountMemberInput, 'userId'>>
 
 const PLATFORM_ADMIN_ROLES = new Set(['SUPER_ADMIN', 'ADMIN'])
-const CUSTOMER_ASSIGNABLE_ROLES = new Set(['CUSTOMER_ADMIN', 'MANAGER', 'SUPERVISOR', 'AGENT'])
-const ACCOUNT_ROLES = new Set<AccountRole>(['OWNER', 'ADMIN', 'BILLING', 'SUPERVISOR', 'AGENT'])
+const CUSTOMER_ASSIGNABLE_ROLES = new Set(['CUSTOMER_ADMIN', 'SUPERVISOR', 'AGENT'])
+const ACCOUNT_ROLES = new Set<AccountRole>(['OWNER', 'SUPERVISOR', 'AGENT'])
 const MEMBERSHIP_STATUSES = new Set<MembershipStatus>(['ACTIVE', 'INACTIVE', 'SUSPENDED'])
 
 const parseId = (value: number | string, label = 'id') => {
@@ -58,6 +58,14 @@ const normalizeAccountRole = (value: unknown): AccountRole => {
   const role = String(value || '').trim().toUpperCase() as AccountRole
   if (!ACCOUNT_ROLES.has(role)) throw new AppError('Invalid account role', 400)
   return role
+}
+
+const accountRoleForUserRole = (roleRaw: unknown): AccountRole => {
+  const role = String(roleRaw || '').trim().toUpperCase()
+  if (role === 'CUSTOMER_ADMIN') return 'OWNER'
+  if (role === 'SUPERVISOR') return 'SUPERVISOR'
+  if (role === 'AGENT') return 'AGENT'
+  throw new AppError('Only Customer Admin, Supervisor, and Agent users can be assigned to a customer account', 400)
 }
 
 const normalizeStatus = (value: unknown, fallback: MembershipStatus = 'ACTIVE'): MembershipStatus => {
@@ -132,8 +140,12 @@ async function requireUserExists(userId: number) {
   })
   if (!user) throw new AppError('User not found', 404)
   if (!user.isActive) throw new AppError('Cannot assign inactive user to account', 400)
-  if (PLATFORM_ADMIN_ROLES.has(String(user.role))) {
+  const role = String(user.role)
+  if (PLATFORM_ADMIN_ROLES.has(role)) {
     throw new AppError('Platform admins cannot be assigned as customer account members', 400)
+  }
+  if (!CUSTOMER_ASSIGNABLE_ROLES.has(role)) {
+    throw new AppError('Only Customer Admin, Supervisor, and Agent users can be assigned to a customer account', 400)
   }
   return user
 }
@@ -252,7 +264,7 @@ export const administrationService = {
         memberships,
         activeAccounts: accounts.filter(item => item.status === 'ACTIVE').length,
         platformAdmins: users.filter(item => ['SUPER_ADMIN', 'ADMIN'].includes(item.role)).length,
-        customerAdmins: users.filter(item => ['CUSTOMER_ADMIN', 'MANAGER'].includes(item.role)).length,
+        customerAdmins: users.filter(item => item.role === 'CUSTOMER_ADMIN').length,
       },
     }
   },
@@ -278,6 +290,10 @@ export const administrationService = {
 
     await requireAccountExists(accountId)
     const user = await requireUserExists(userId)
+    const expectedAccountRole = accountRoleForUserRole(user.role)
+    if (accountRole !== expectedAccountRole) {
+      throw new AppError('Account access role must match the selected user role', 400)
+    }
     await requireAccountAccess(actor, accountId, 'canManageUsers')
 
     const membership = await prisma.commercialAccountMembership.upsert({
@@ -321,12 +337,19 @@ export const administrationService = {
 
   async updateAccountMember(membershipIdRaw: number | string, input: UpdateAccountMemberInput, actor?: Actor) {
     const membershipId = parseId(membershipIdRaw, 'membership id')
-    const existing = await prisma.commercialAccountMembership.findUnique({ where: { id: membershipId } })
+    const existing = await prisma.commercialAccountMembership.findUnique({
+      where: { id: membershipId },
+      include: { user: { select: { role: true } } },
+    })
     if (!existing) throw new AppError('Account membership not found', 404)
 
     await requireAccountAccess(actor, existing.accountId, 'canManageUsers')
 
     const nextRole = input.accountRole ? normalizeAccountRole(input.accountRole) : existing.accountRole as AccountRole
+    const expectedAccountRole = accountRoleForUserRole(existing.user.role)
+    if (nextRole !== expectedAccountRole) {
+      throw new AppError('Account access role must match the selected user role', 400)
+    }
     const nextStatus = input.status ? normalizeStatus(input.status) : existing.status as MembershipStatus
     const defaults = defaultPermissionsForRole(nextRole)
 
@@ -360,7 +383,10 @@ export const administrationService = {
 
   async removeAccountMember(membershipIdRaw: number | string, actor?: Actor) {
     const membershipId = parseId(membershipIdRaw, 'membership id')
-    const existing = await prisma.commercialAccountMembership.findUnique({ where: { id: membershipId } })
+    const existing = await prisma.commercialAccountMembership.findUnique({
+      where: { id: membershipId },
+      include: { user: { select: { role: true } } },
+    })
     if (!existing) throw new AppError('Account membership not found', 404)
 
     await requireAccountAccess(actor, existing.accountId, 'canManageUsers')

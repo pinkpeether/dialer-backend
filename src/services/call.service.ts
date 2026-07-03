@@ -55,8 +55,9 @@ const ensureCanAccessCall = (
 ) => {
   if (!user) throw new AppError('Unauthorized', 401)
 
-  if (user.role === 'ADMIN' || user.role === 'CUSTOMER_ADMIN' || user.role === 'SUPERVISOR') return
-  if (user.role === 'AGENT' && call.agentId === user.id) return
+  const role = String(user.role || '').toUpperCase()
+  if (role === 'SUPER_ADMIN' || role === 'ADMIN' || role === 'CUSTOMER_ADMIN' || role === 'SUPERVISOR') return
+  if (role === 'AGENT' && call.agentId === user.id) return
 
   throw new AppError(
     action === 'view'
@@ -255,6 +256,9 @@ export const updateCallDisposition = async (
       connectedAt: true,
       endedAt: true,
       duration: true,
+      status: true,
+      source: true,
+      providerCallId: true,
       campaign: { select: { maxRetries: true, retryDelay: true } },
     },
   })
@@ -264,10 +268,18 @@ export const updateCallDisposition = async (
   ensureCanAccessCall(existing, user, 'update')
 
   const callbackAgentId = existing.agentId ?? user?.id
+  const hasRecordedEnd = Boolean(existing.endedAt)
+  const isBackendOriginatedCall =
+    String(existing.source || '').toLowerCase().includes('sip_trunk') ||
+    String(existing.providerCallId || '').startsWith('ami_') ||
+    String(existing.providerCallId || '').startsWith('pending_ami_')
+
   const endedAt = existing.endedAt ?? new Date()
   const durationStart = existing.connectedAt ?? existing.startedAt
   const computedDuration = Math.max(0, Math.round((endedAt.getTime() - durationStart.getTime()) / 1000))
-  const duration = existing.duration && existing.duration > 0 ? existing.duration : computedDuration
+  const duration = existing.duration && existing.duration > 0
+    ? existing.duration
+    : (!hasRecordedEnd && isBackendOriginatedCall ? 0 : computedDuration)
 
   const call = await prisma.$transaction(async (tx) => {
     const call = await tx.call.update({

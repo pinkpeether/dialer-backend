@@ -6,7 +6,7 @@ import * as ProviderCallService from '../services/providerCall.service'
 const router = Router()
 router.use(authenticate)
 
-router.post('/call/backend-adhoc', authorize('AGENT', 'ADMIN', 'SUPERVISOR', 'CUSTOMER_ADMIN', 'MANAGER'), async (req: AuthRequest, res, next) => {
+router.post('/call/backend-adhoc', authorize('SUPER_ADMIN', 'ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR', 'AGENT'), async (req: AuthRequest, res, next) => {
   try {
     const { phone, note, callerIdId, agentExtension } = req.body
     if (!phone) return sendError(res, 'phone number required', 400)
@@ -16,7 +16,7 @@ router.post('/call/backend-adhoc', authorize('AGENT', 'ADMIN', 'SUPERVISOR', 'CU
   } catch (err) { return next(err) }
 })
 
-router.post('/call/backend-hangup', authorize('AGENT', 'ADMIN', 'SUPERVISOR', 'CUSTOMER_ADMIN', 'MANAGER'), async (req: AuthRequest, res, next) => {
+router.post('/call/backend-hangup', authorize('SUPER_ADMIN', 'ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR', 'AGENT'), async (req: AuthRequest, res, next) => {
   try {
     const { callId, providerCallId, phone, agentExtension } = req.body
     if (!callId && !providerCallId && !phone) return sendError(res, 'callId, providerCallId, or phone required', 400)

@@ -3,6 +3,7 @@ import { AppError } from '../middleware/errorHandler'
 import logger from '../utils/logger'
 import { resolveDynamicCallerIdForCall } from './dynamicCallerIdRuntime.service'
 import { hangupBackendOriginatedCall, originateOutboundCall } from './asteriskAmi.service'
+import * as Scope from './commercialScope.service'
 
 const DEFAULT_CALLER_ID = process.env.DEFAULT_OUTBOUND_CALLER_ID || ''
 
@@ -10,6 +11,28 @@ type Actor = { id: number; email?: string; role?: string }
 type CallOptions = { callerIdId?: number | string | null; agentExtension?: string | null }
 
 const sanitizeAgentExtension = (value?: string | null) => value ? value.replace(/[^0-9A-Za-z_.-]/g, '').trim() : ''
+
+const getOrCreateAdhocCampaign = async (actor?: Actor) => {
+  const commercialAccountId = actor ? await Scope.primaryAccountIdForActor(actor) : null
+
+  const existing = await prisma.campaign.findFirst({
+    where: { name: '__adhoc__', commercialAccountId },
+  })
+  if (existing) return existing
+
+  return prisma.campaign.create({
+    data: {
+      name: '__adhoc__',
+      description: commercialAccountId
+        ? 'System campaign for customer account ad-hoc manual calls'
+        : 'System campaign for platform ad-hoc manual calls',
+      status: 'ACTIVE',
+      callerId: DEFAULT_CALLER_ID,
+      dialingRatio: 1,
+      commercialAccountId,
+    },
+  })
+}
 
 export const initiateCall = async (contactId: number, campaignId: number, actorOrAgentId?: Actor | number, options: CallOptions = {}) => {
   const actor = typeof actorOrAgentId === 'object' ? actorOrAgentId : undefined
@@ -19,6 +42,11 @@ export const initiateCall = async (contactId: number, campaignId: number, actorO
 
   const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } })
   if (!campaign) throw new AppError('Campaign not found', 404)
+
+  if (actor) {
+    await Scope.assertCampaignAccess(campaignId, actor)
+    await Scope.assertContactAccess(contactId, actor)
+  }
 
   const dynamicCallerId = actor ? await resolveDynamicCallerIdForCall(actor, options.callerIdId) : null
   const outboundCallerId = dynamicCallerId || campaign.callerId || DEFAULT_CALLER_ID || null
@@ -64,12 +92,16 @@ export const initiateCall = async (contactId: number, campaignId: number, actorO
 export const initiateAdhocCall = async (phone: string, actorOrAgentId: Actor | number, note?: string, options: CallOptions = {}) => {
   const actor = typeof actorOrAgentId === 'object' ? actorOrAgentId : undefined
   const agentId = typeof actorOrAgentId === 'number' ? actorOrAgentId : actorOrAgentId.id
-  const contact = await prisma.contact.create({ data: { phone, name: note || 'Ad-hoc Call', status: 'CALLING', lastCalledAt: new Date() } })
-
-  let campaign = await prisma.campaign.findFirst({ where: { name: '__adhoc__' } })
-  if (!campaign) {
-    campaign = await prisma.campaign.create({ data: { name: '__adhoc__', description: 'System campaign for ad-hoc manual calls', status: 'ACTIVE', callerId: DEFAULT_CALLER_ID, dialingRatio: 1 } })
-  }
+  const campaign = await getOrCreateAdhocCampaign(actor)
+  const contact = await prisma.contact.create({
+    data: {
+      phone,
+      name: note || 'Ad-hoc Call',
+      status: 'CALLING',
+      lastCalledAt: new Date(),
+      campaignId: campaign.id,
+    },
+  })
 
   const dynamicCallerId = actor ? await resolveDynamicCallerIdForCall(actor, options.callerIdId) : null
   const outboundCallerId = dynamicCallerId || DEFAULT_CALLER_ID || campaign.callerId || null

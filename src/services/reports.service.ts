@@ -24,16 +24,39 @@ const scopedCallWhere = async (filters: ReportFilters, actor?: Actor): Promise<P
 
 const scopedCampaignWhere = async (filters: ReportFilters, actor?: Actor): Promise<Prisma.CampaignWhereInput> => {
   const baseScope = await Scope.campaignScopeWhere(actor)
-  return { ...baseScope, ...campaignAccountWhere(filters.commercialAccountId) }
+  const where: Prisma.CampaignWhereInput = { ...baseScope, ...campaignAccountWhere(filters.commercialAccountId) }
+  if (filters.campaignId) where.id = filters.campaignId
+  return where
 }
 
+
+
 const scopedAccountSql = async (actor?: Actor, commercialAccountId?: number) => {
-  if (Scope.isPlatformActor(actor)) return commercialAccountId ? Prisma.sql`AND campaigns."commercialAccountId" = ${commercialAccountId}` : Prisma.empty
+  if (Scope.isPlatformActor(actor)) {
+    return commercialAccountId
+      ? Prisma.sql`AND campaigns."commercialAccountId" = ${commercialAccountId}`
+      : Prisma.empty
+  }
+
   const accountIds = await Scope.getActorAccountIds(actor)
   if (!accountIds.length) return Prisma.sql`AND 1=0`
-  if (commercialAccountId) return accountIds.includes(commercialAccountId) ? Prisma.sql`AND campaigns."commercialAccountId" = ${commercialAccountId}` : Prisma.sql`AND 1=0`
-  return Prisma.sql`AND campaigns."commercialAccountId" IN (${Prisma.join(accountIds)})`
+
+  const accountClause = commercialAccountId
+    ? accountIds.includes(commercialAccountId)
+      ? Prisma.sql`AND campaigns."commercialAccountId" = ${commercialAccountId}`
+      : Prisma.sql`AND 1=0`
+    : Prisma.sql`AND campaigns."commercialAccountId" IN (${Prisma.join(accountIds)})`
+
+  const role = String(actor?.role || '').trim().toUpperCase()
+
+  if (role === 'CUSTOMER_ADMIN') return accountClause
+  if (role === 'SUPERVISOR') return Prisma.sql`${accountClause} AND (calls."agentId" = ${actor!.id} OR agents.role = 'AGENT')`
+  if (role === 'AGENT') return Prisma.sql`${accountClause} AND calls."agentId" = ${actor!.id}`
+
+  return Prisma.sql`${accountClause} AND calls."agentId" = ${actor!.id}`
 }
+
+
 
 export const getSummary = async (filters: ReportFilters, actor?: Actor) => {
   const where = await scopedCallWhere(filters, actor)
@@ -51,6 +74,7 @@ export const getCallTrend = async (filters: ReportFilters & { granularity?: 'day
     SELECT ${bucket} AS date, COUNT(*) AS total, COUNT(*) FILTER (WHERE calls.disposition = 'ANSWERED') AS answered
     FROM "Call" calls
     JOIN "Campaign" campaigns ON campaigns.id = calls."campaignId"
+    LEFT JOIN "User" agents ON agents.id = calls."agentId"
     WHERE 1=1 ${accountSql}
       ${filters.from ? Prisma.sql`AND calls."startedAt" >= ${filters.from}` : Prisma.empty}
       ${filters.to ? Prisma.sql`AND calls."startedAt" <= ${filters.to}` : Prisma.empty}
@@ -60,11 +84,49 @@ export const getCallTrend = async (filters: ReportFilters & { granularity?: 'day
 }
 
 export const getCampaignBreakdown = async (filters: ReportFilters, actor?: Actor) => {
-  const dateFilter: Prisma.CallWhereInput = {}
-  if (filters.from || filters.to) dateFilter.startedAt = { ...(filters.from ? { gte: filters.from } : {}), ...(filters.to ? { lte: filters.to } : {}) }
-  const campaigns = await prisma.campaign.findMany({ where: await scopedCampaignWhere(filters, actor), select: { id: true, name: true, status: true, commercialAccountId: true, commercialAccount: { select: commercialAccountSelect }, _count: { select: { calls: true, contacts: true } }, calls: { where: dateFilter, select: { status: true, disposition: true, duration: true } } } })
-  return campaigns.map(campaign => { const total = campaign.calls.length; const answered = campaign.calls.filter(call => call.disposition === 'ANSWERED').length; const talkTime = campaign.calls.reduce((sum, call) => sum + (call.duration ?? 0), 0); return { id: campaign.id, name: campaign.name, status: campaign.status, commercialAccountId: campaign.commercialAccountId, commercialAccount: campaign.commercialAccount, totalContacts: campaign._count.contacts, totalCalls: total, answered, answerRate: total > 0 ? Math.round((answered / total) * 100 * 10) / 10 : 0, totalTalkTimeSecs: talkTime } })
+  const callWhere = await scopedCallWhere({
+    from: filters.from,
+    to: filters.to,
+    commercialAccountId: filters.commercialAccountId,
+  }, actor)
+
+  const campaigns = await prisma.campaign.findMany({
+    where: await scopedCampaignWhere(filters, actor),
+    select: {
+      id: true,
+      name: true,
+      status: true,
+      commercialAccountId: true,
+      commercialAccount: { select: commercialAccountSelect },
+      _count: { select: { calls: true, contacts: true } },
+      calls: {
+        where: callWhere,
+        select: { status: true, disposition: true, duration: true },
+      },
+    },
+  })
+
+  return campaigns.map(campaign => {
+    const total = campaign.calls.length
+    const answered = campaign.calls.filter(call => call.disposition === 'ANSWERED').length
+    const talkTime = campaign.calls.reduce((sum, call) => sum + (call.duration ?? 0), 0)
+
+    return {
+      id: campaign.id,
+      name: campaign.name,
+      status: campaign.status,
+      commercialAccountId: campaign.commercialAccountId,
+      commercialAccount: campaign.commercialAccount,
+      totalContacts: campaign._count.contacts,
+      totalCalls: total,
+      answered,
+      answerRate: total > 0 ? Math.round((answered / total) * 100 * 10) / 10 : 0,
+      totalTalkTimeSecs: talkTime,
+    }
+  })
 }
+
+
 
 export const getAgentBreakdown = async (filters: ReportFilters, actor?: Actor) => {
   const userWhere = await Scope.userScopeWhere(actor)

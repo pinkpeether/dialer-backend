@@ -10,6 +10,8 @@ export const isPlatformActor = (actor?: ScopeActor) =>
   Boolean(actor?.role && PLATFORM_ROLES.has(String(actor.role).trim().toUpperCase()))
 
 const emptyAccountIds = [-1]
+const roleOf = (actor?: ScopeActor) => String(actor?.role || '').trim().toUpperCase()
+
 
 export const getActorAccountIds = async (actor?: ScopeActor) => {
   if (!actor?.id) throw new AppError('Unauthorized', 401)
@@ -46,28 +48,186 @@ export const campaignScopeWhere = async (actor?: ScopeActor): Promise<Prisma.Cam
 
 export const contactScopeWhere = async (actor?: ScopeActor): Promise<Prisma.ContactWhereInput> => {
   if (isPlatformActor(actor)) return {}
+
   const accountIds = await getActorAccountIds(actor)
-  return { campaign: { commercialAccountId: { in: accountIds.length ? accountIds : emptyAccountIds } } }
+  const ids = accountIds.length ? accountIds : emptyAccountIds
+  const accountScopedWhere: Prisma.ContactWhereInput = {
+    campaign: { commercialAccountId: { in: ids } },
+  }
+
+  const role = roleOf(actor)
+
+  if (role === 'CUSTOMER_ADMIN' || role === 'SUPERVISOR') return accountScopedWhere
+
+  if (role === 'AGENT') {
+    return {
+      AND: [
+        accountScopedWhere,
+        {
+          OR: [
+            { calls: { some: { agentId: actor!.id } } },
+            { callbacks: { some: { agentId: actor!.id } } },
+          ],
+        },
+      ],
+    }
+  }
+
+  return {
+    AND: [
+      accountScopedWhere,
+      {
+        OR: [
+          { calls: { some: { agentId: actor!.id } } },
+          { callbacks: { some: { agentId: actor!.id } } },
+        ],
+      },
+    ],
+  }
 }
+
+
 
 export const callScopeWhere = async (actor?: ScopeActor): Promise<Prisma.CallWhereInput> => {
   if (isPlatformActor(actor)) return {}
+
   const accountIds = await getActorAccountIds(actor)
-  return { campaign: { commercialAccountId: { in: accountIds.length ? accountIds : emptyAccountIds } } }
+  const ids = accountIds.length ? accountIds : emptyAccountIds
+  const accountScopedWhere: Prisma.CallWhereInput = {
+    campaign: { commercialAccountId: { in: ids } },
+  }
+
+  const role = roleOf(actor)
+
+  if (role === 'CUSTOMER_ADMIN') return accountScopedWhere
+
+  if (role === 'SUPERVISOR') {
+    return {
+      AND: [
+        accountScopedWhere,
+        {
+          OR: [
+            { agentId: actor!.id },
+            { agent: { role: 'AGENT' } },
+          ],
+        },
+      ],
+    }
+  }
+
+  if (role === 'AGENT') {
+    return {
+      AND: [
+        accountScopedWhere,
+        { agentId: actor!.id },
+      ],
+    }
+  }
+
+  return {
+    AND: [
+      accountScopedWhere,
+      { agentId: actor!.id },
+    ],
+  }
 }
+
+
 
 export const userScopeWhere = async (actor?: ScopeActor): Promise<Prisma.UserWhereInput> => {
   if (isPlatformActor(actor)) return {}
+
   const accountIds = await getActorAccountIds(actor)
-  return {
+  const ids = accountIds.length ? accountIds : emptyAccountIds
+  const accountScopedWhere: Prisma.UserWhereInput = {
     commercialMemberships: {
       some: {
-        accountId: { in: accountIds.length ? accountIds : emptyAccountIds },
+        accountId: { in: ids },
         status: 'ACTIVE',
       },
     },
   }
+
+  const role = roleOf(actor)
+
+  if (role === 'CUSTOMER_ADMIN') return accountScopedWhere
+
+  if (role === 'SUPERVISOR') {
+    return {
+      AND: [
+        accountScopedWhere,
+        {
+          OR: [
+            { id: actor!.id },
+            { role: 'AGENT' },
+          ],
+        },
+      ],
+    }
+  }
+
+  if (role === 'AGENT') return { id: actor!.id }
+
+  return { id: actor!.id }
 }
+
+
+
+export const callbackScopeWhere = async (actor?: ScopeActor): Promise<Prisma.CallbackWhereInput> => {
+  if (isPlatformActor(actor)) return {}
+
+  const accountIds = await getActorAccountIds(actor)
+  const ids = accountIds.length ? accountIds : emptyAccountIds
+  const accountScopedWhere: Prisma.CallbackWhereInput = {
+    OR: [
+      { agent: { commercialMemberships: { some: { accountId: { in: ids }, status: 'ACTIVE' } } } },
+      { call: { campaign: { commercialAccountId: { in: ids } } } },
+      { contact: { campaign: { commercialAccountId: { in: ids } } } },
+    ],
+  }
+
+  const role = roleOf(actor)
+
+  if (role === 'CUSTOMER_ADMIN') return accountScopedWhere
+
+  if (role === 'SUPERVISOR') {
+    return {
+      AND: [
+        accountScopedWhere,
+        {
+          OR: [
+            { agentId: actor!.id },
+            { agent: { role: 'AGENT' } },
+            { call: { agentId: actor!.id } },
+            { call: { agent: { role: 'AGENT' } } },
+          ],
+        },
+      ],
+    }
+  }
+
+  if (role === 'AGENT') {
+    return {
+      AND: [
+        accountScopedWhere,
+        {
+          OR: [
+            { agentId: actor!.id },
+            { call: { agentId: actor!.id } },
+          ],
+        },
+      ],
+    }
+  }
+
+  return {
+    AND: [
+      accountScopedWhere,
+      { agentId: actor!.id },
+    ],
+  }
+}
+
 
 export const assertCampaignAccess = async (campaignId: number, actor?: ScopeActor) => {
   if (!Number.isFinite(campaignId)) throw new AppError('Invalid campaign id', 400)

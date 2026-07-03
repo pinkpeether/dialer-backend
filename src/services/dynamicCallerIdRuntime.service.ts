@@ -4,7 +4,7 @@ import { logAuditEvent } from './audit.service'
 
 type Actor = { id: number; email?: string; role?: string }
 const PLATFORM_ROLES = new Set(['SUPER_ADMIN', 'ADMIN'])
-const CUSTOMER_CALLER_ID_ROLES = new Set(['CUSTOMER_ADMIN', 'SUPERVISOR', 'MANAGER'])
+const CUSTOMER_CALLER_ID_ROLES = new Set(['CUSTOMER_ADMIN', 'SUPERVISOR'])
 const metaPrefix = 'ptdt:'
 
 const isPlatformActor = (actor?: Actor) => Boolean(actor?.role && PLATFORM_ROLES.has(String(actor.role)))

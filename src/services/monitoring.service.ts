@@ -18,18 +18,7 @@ const countValues = (values: Record<string, number>) => {
   return Object.values(values).reduce((sum, count) => sum + count, 0)
 }
 
-const callbackScopeWhere = async (actor?: Scope.ScopeActor): Promise<Prisma.CallbackWhereInput> => {
-  if (Scope.isPlatformActor(actor)) return {}
-  const accountIds = await Scope.getActorAccountIds(actor)
-  const ids = accountIds.length ? accountIds : [-1]
-  return {
-    OR: [
-      { agent: { commercialMemberships: { some: { accountId: { in: ids }, status: 'ACTIVE' } } } },
-      { call: { campaign: { commercialAccountId: { in: ids } } } },
-      { contact: { campaign: { commercialAccountId: { in: ids } } } },
-    ],
-  }
-}
+const callbackScopeWhere = async (actor?: Scope.ScopeActor): Promise<Prisma.CallbackWhereInput> => Scope.callbackScopeWhere(actor)
 
 const checkDb = async () => {
   const started = Date.now()

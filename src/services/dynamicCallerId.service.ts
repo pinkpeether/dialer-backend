@@ -8,7 +8,7 @@ type CallerIdScope = 'all' | 'user' | 'campaign'
 
 const E164_RE = /^\+[1-9]\d{1,14}$/
 const PLATFORM_ROLES = new Set(['SUPER_ADMIN', 'ADMIN'])
-const CUSTOMER_CONTROL_ROLES = new Set(['CUSTOMER_ADMIN', 'SUPERVISOR', 'MANAGER'])
+const CUSTOMER_CONTROL_ROLES = new Set(['CUSTOMER_ADMIN', 'SUPERVISOR'])
 const metaPrefix = 'ptdt:'
 
 const normalizeNumber = (value: string) => value.replace(/[\s().-]/g, '').trim()
