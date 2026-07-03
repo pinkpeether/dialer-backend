@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import * as Scope from './commercialScope.service'
@@ -126,17 +127,9 @@ export const getAllCallbacks = async (filters: {
 }, actor?: Actor) => {
   const { status, from, to, agentId, page = 1, limit = 30 } = filters
 
-  const where: Record<string, unknown> = {}
+  const where: Prisma.CallbackWhereInput = await Scope.callbackScopeWhere(actor)
   if (status) where.status = status
   if (agentId) where.agentId = agentId
-  if (!Scope.isPlatformActor(actor)) {
-    const accountIds = await Scope.getActorAccountIds(actor)
-    where.OR = [
-      { agent: { commercialMemberships: { some: { accountId: { in: accountIds.length ? accountIds : [-1] }, status: 'ACTIVE' } } } },
-      { call: { campaign: { commercialAccountId: { in: accountIds.length ? accountIds : [-1] } } } },
-      { contact: { campaign: { commercialAccountId: { in: accountIds.length ? accountIds : [-1] } } } },
-    ]
-  }
   if (from || to) {
     where.scheduledAt = {
       ...(from ? { gte: new Date(from) } : {}),
@@ -178,7 +171,13 @@ export const updateCallback = async (
   if (!existing) throw new AppError('Callback not found', 404)
   if (existing.callId) await Scope.assertCallAccess(existing.callId, actor)
   else if (existing.contactId) await Scope.assertContactAccess(existing.contactId, actor)
-  else if (!Scope.isPlatformActor(actor) && existing.agentId !== actor?.id) throw new AppError('Callback not found for this commercial account', 404)
+  else if (!Scope.isPlatformActor(actor)) {
+    const visible = await prisma.callback.findFirst({
+      where: { id, ...(await Scope.callbackScopeWhere(actor)) },
+      select: { id: true },
+    })
+    if (!visible) throw new AppError('Callback not found for this commercial account', 404)
+  }
 
   const updateData: Record<string, unknown> = {}
   if (data.status) updateData.status = data.status
