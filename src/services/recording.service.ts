@@ -90,6 +90,19 @@ const verify = (token: string): PlaybackPayload => {
   return payload
 }
 
+const commercialAccountSelect = {
+  id: true,
+  name: true,
+  code: true,
+  status: true,
+} as const
+
+const visibleCampaignName = (name?: string | null) => {
+  if (name === '__adhoc__') return 'PTDT Manual Call'
+  if (name === '__sip__') return 'PTDT Internal Call'
+  return name || null
+}
+
 const detectProvider = (url?: string | null) => {
   if (!url) return 'none'
   try {
@@ -124,13 +137,19 @@ const sanitizeRecording = (call: any) => ({
   recordingProvider: detectProvider(call.recordingUrl),
   contact: call.contact,
   agent: call.agent,
-  campaign: call.campaign,
+  campaign: call.campaign
+    ? {
+        ...call.campaign,
+        name: visibleCampaignName(call.campaign.name),
+      }
+    : call.campaign,
+  commercialAccount: call.campaign?.commercialAccount || null,
 })
 
 const recordingInclude = {
   contact: { select: { id: true, name: true, phone: true } },
   agent: { select: { id: true, name: true, agentCode: true } },
-  campaign: { select: { id: true, name: true } },
+  campaign: { select: { id: true, name: true, commercialAccount: { select: commercialAccountSelect } } },
 }
 
 const getRecordingInternal = async (callId: number, actor?: Actor) => {
