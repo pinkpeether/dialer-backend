@@ -200,10 +200,11 @@ export const updateTeamUser = async (id: number, data: Record<string, unknown>, 
       throw new AppError('Customer Admin can edit Supervisor and Agent users only.', 403)
     }
 
-    const allowedData: { name?: string; phone?: string; extension?: string } = {}
+    const allowedData: { name?: string; phone?: string; extension?: string; isActive?: boolean } = {}
     if (typeof data.name === 'string' && data.name.trim()) allowedData.name = data.name.trim()
     if (typeof data.phone === 'string') allowedData.phone = data.phone.trim() || undefined
     if (typeof data.extension === 'string') allowedData.extension = data.extension.trim() || undefined
+    if (typeof data.isActive === 'boolean') allowedData.isActive = data.isActive
 
     if (!Object.keys(allowedData).length) {
       throw new AppError('No editable team user fields were provided.', 400)
