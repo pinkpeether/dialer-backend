@@ -32,6 +32,54 @@ const nowSecondsSince = (date?: Date | null) => {
 const workedSecondsFor = (clockInAt: Date, clockOutAt?: Date | null) =>
   Math.max(0, Math.floor(((clockOutAt || new Date()).getTime() - clockInAt.getTime()) / 1000))
 
+const normalized = (value?: string | null) => String(value || '').trim().toLowerCase()
+
+const firstMismatch = (session: {
+  browser?: string | null
+  userAgent?: string | null
+  deviceFingerprint?: string | null
+}, metadata: ClockMetadata) => {
+  const checks: Array<[string, string | null | undefined, string | null | undefined]> = [
+    ['browser', session.browser, metadata.browser],
+    ['user agent', session.userAgent, metadata.userAgent],
+    ['device fingerprint', session.deviceFingerprint, metadata.deviceFingerprint],
+  ]
+  return checks.find(([, current, incoming]) => normalized(current) && normalized(incoming) && normalized(current) !== normalized(incoming))?.[0] || null
+}
+
+const multipleBrowserReason = (field: string) => `Multiple browser/device attendance session detected from a different ${field}.`
+
+const flagIfSessionMismatch = async (
+  actor: ScopeActor,
+  session: { id: number; userId: number; redFlag: boolean; redFlagReason?: string | null; browser?: string | null; userAgent?: string | null; deviceFingerprint?: string | null },
+  metadata: ClockMetadata,
+  ipAddress?: string | null,
+) => {
+  const mismatch = firstMismatch(session, metadata)
+  if (!mismatch) return session
+  const reason = session.redFlagReason || multipleBrowserReason(mismatch)
+  const updated = await prisma.attendanceSession.update({
+    where: { id: session.id },
+    data: { redFlag: true, redFlagReason: reason },
+  })
+  await event({
+    sessionId: updated.id,
+    userId: updated.userId,
+    type: 'RECONNECT',
+    metadata: { reason: 'MULTIPLE_BROWSER_DETECTED', mismatch, metadata } as Prisma.InputJsonValue,
+    ipAddress,
+  })
+  await logAuditEvent({
+    actor,
+    action: 'ATTENDANCE_MULTIPLE_BROWSER_DETECTED',
+    entity: 'AttendanceSession',
+    entityId: updated.id,
+    metadata: { mismatch, redFlagReason: reason },
+    ipAddress,
+  })
+  return updated
+}
+
 const event = async (data: {
   sessionId: number
   userId: number
@@ -70,7 +118,7 @@ export const clockIn = async (actor: ScopeActor, metadata: ClockMetadata, ipAddr
     where: { userId: actor.id, status: { in: ACTIVE_STATUSES } },
     orderBy: { clockInAt: 'desc' },
   })
-  if (active) return active
+  if (active) return flagIfSessionMismatch(actor, active, metadata, ipAddress)
 
   const sessionKey = `${actor.id}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
   const session = await prisma.attendanceSession.create({
@@ -133,8 +181,9 @@ export const heartbeat = async (actor: ScopeActor, sessionId: number | undefined
   if (active.userId !== actor.id) throw new AppError('Cannot heartbeat another user attendance session', 403)
 
   const totalWorkedSeconds = workedSecondsFor(active.clockInAt)
-  const redFlag = active.redFlag || totalWorkedSeconds > MAX_SHIFT_SECONDS
-  const redFlagReason = redFlag && !active.redFlagReason ? 'Active session exceeded maximum shift length.' : active.redFlagReason
+  const mismatch = firstMismatch(active, metadata)
+  const redFlag = active.redFlag || totalWorkedSeconds > MAX_SHIFT_SECONDS || Boolean(mismatch)
+  const redFlagReason = active.redFlagReason || (mismatch ? multipleBrowserReason(mismatch) : redFlag ? 'Active session exceeded maximum shift length.' : null)
   const updated = await prisma.attendanceSession.update({
     where: { id: active.id },
     data: {
@@ -150,6 +199,23 @@ export const heartbeat = async (actor: ScopeActor, sessionId: number | undefined
     },
   })
   await event({ sessionId: updated.id, userId: updated.userId, type: 'HEARTBEAT', metadata, ipAddress })
+  if (mismatch && !active.redFlag) {
+    await event({
+      sessionId: updated.id,
+      userId: updated.userId,
+      type: 'RECONNECT',
+      metadata: { reason: 'MULTIPLE_BROWSER_DETECTED', mismatch, metadata } as Prisma.InputJsonValue,
+      ipAddress,
+    })
+    await logAuditEvent({
+      actor,
+      action: 'ATTENDANCE_MULTIPLE_BROWSER_DETECTED',
+      entity: 'AttendanceSession',
+      entityId: updated.id,
+      metadata: { mismatch, redFlagReason },
+      ipAddress,
+    })
+  }
   return updated
 }
 
@@ -271,7 +337,7 @@ export const listOverview = async (actor: ScopeActor, filters: { status?: string
       status,
       activeSeconds,
       heartbeatAgeSeconds,
-      needsReview: Boolean(session?.redFlag || status === 'UNEXPECTED_DISCONNECT' || status === 'MISSED_CLOCK_OUT'),
+      needsReview: Boolean(session?.redFlag || status === 'NO_SESSION' || status === 'UNEXPECTED_DISCONNECT' || status === 'MISSED_CLOCK_OUT'),
     }
   })
 
