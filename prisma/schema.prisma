@@ -72,6 +72,32 @@ enum AgentSessionStatus {
   DISCONNECTED
 }
 
+enum AttendanceSessionStatus {
+  CLOCKED_IN
+  CLOCKED_OUT
+  IDLE
+  ON_BREAK
+  UNEXPECTED_DISCONNECT
+  MISSED_CLOCK_OUT
+  FLAGGED
+  PENDING_SUPERVISOR_REVIEW
+}
+
+enum AttendanceEventType {
+  CLOCK_IN
+  CLOCK_OUT
+  HEARTBEAT
+  BROWSER_CLOSED
+  RECONNECT
+  DISCONNECT
+  IDLE_STARTED
+  IDLE_ENDED
+  BREAK_STARTED
+  BREAK_ENDED
+  SUPERVISOR_OVERRIDE
+  MANUAL_CORRECTION
+}
+
 model User {
   id              Int              @id @default(autoincrement())
   name            String
@@ -87,6 +113,7 @@ model User {
   updatedAt       DateTime         @updatedAt
   calls           Call[]
   sessions        AgentSession[]
+  attendanceSessions AttendanceSession[]
   callbacks       Callback[]
   dncEntries      DNCList[]
   spoofingNumbers SpoofingNumber[]
@@ -237,6 +264,58 @@ model AgentSession {
   connectedAt    DateTime           @default(now())
   disconnectedAt DateTime?
   agent          User               @relation(fields: [agentId], references: [id])
+}
+
+model AttendanceSession {
+  id                  Int                     @id @default(autoincrement())
+  userId              Int
+  role                String
+  sessionKey          String                  @unique
+  clockInAt           DateTime                @default(now())
+  clockOutAt          DateTime?
+  totalWorkedSeconds  Int                     @default(0)
+  totalBreakSeconds   Int                     @default(0)
+  productiveSeconds   Int                     @default(0)
+  idleSeconds         Int                     @default(0)
+  status              AttendanceSessionStatus @default(CLOCKED_IN)
+  browser             String?
+  operatingSystem     String?
+  publicIp            String?
+  localIp             String?
+  timezone            String?
+  deviceFingerprint   String?
+  userAgent           String?                 @db.Text
+  lastHeartbeatAt     DateTime?
+  disconnectCount     Int                     @default(0)
+  redFlag             Boolean                 @default(false)
+  redFlagReason       String?
+  supervisorNotes     String?                 @db.Text
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  user                User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events              AttendanceEvent[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([clockInAt])
+  @@index([lastHeartbeatAt])
+  @@index([redFlag])
+}
+
+model AttendanceEvent {
+  id          Int                 @id @default(autoincrement())
+  sessionId   Int
+  userId      Int
+  type        AttendanceEventType
+  metadata    Json?
+  ipAddress   String?
+  createdAt   DateTime            @default(now())
+  session     AttendanceSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
 }
 
 model DNCList {

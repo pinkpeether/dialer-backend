@@ -46,6 +46,7 @@ import smsRoutes from './routes/sms.routes'
 import commercialControlRoutes from './routes/commercialControl.routes'
 import administrationRoutes from './routes/administration.routes'
 import accountReviewRoutes from './routes/accountReview.routes'
+import attendanceIntegrityRoutes from './routes/attendanceIntegrity.routes'
 import { requestMetricsMiddleware } from './middleware/requestMetrics.middleware'
 
 import './services/dialerScheduler'
@@ -142,6 +143,7 @@ app.use('/api/sms', smsRoutes)
 app.use('/api/commercial-control', commercialControlRoutes)
 app.use('/api/administration', administrationRoutes)
 app.use('/api/account-review', accountReviewRoutes)
+app.use('/api/attendance-integrity', attendanceIntegrityRoutes)
 
 app.use((_req, _res, next) => {
   next(new AppError('Route not found', 404))
