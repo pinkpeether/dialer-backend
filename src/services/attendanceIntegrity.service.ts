@@ -193,27 +193,78 @@ export const listOverview = async (actor: ScopeActor, filters: { status?: string
     ...(filters.status ? { status: filters.status as AttendanceSessionStatus } : {}),
     ...(filters.from || filters.to ? { clockInAt: { ...(filters.from ? { gte: filters.from } : {}), ...(filters.to ? { lte: filters.to } : {}) } } : {}),
   }
-  const sessions = await prisma.attendanceSession.findMany({
+  let sessions = await prisma.attendanceSession.findMany({
     where: sessionWhere,
     orderBy: { clockInAt: 'desc' },
     include: { events: { orderBy: { createdAt: 'desc' }, take: 5 } },
     take: Math.min((filters.limit || 250) * 2, 700),
   })
+  const now = new Date()
+  const staleSessions = sessions.filter(session =>
+    ACTIVE_STATUSES.includes(session.status) &&
+    session.lastHeartbeatAt &&
+    nowSecondsSince(session.lastHeartbeatAt) > MISSED_HEARTBEAT_SECONDS
+  )
+
+  if (staleSessions.length > 0) {
+    await prisma.$transaction(staleSessions.flatMap(session => {
+      const metadata = {
+        reason: 'STALE_HEARTBEAT',
+        heartbeatAgeSeconds: nowSecondsSince(session.lastHeartbeatAt),
+        heartbeatTimeoutSeconds: MISSED_HEARTBEAT_SECONDS,
+      }
+      return [
+        prisma.attendanceSession.update({
+          where: { id: session.id },
+          data: {
+            status: 'UNEXPECTED_DISCONNECT',
+            disconnectCount: { increment: 1 },
+            redFlag: true,
+            redFlagReason: session.redFlagReason || 'Heartbeat stopped before Clock-Out.',
+          },
+        }),
+        prisma.attendanceEvent.create({
+          data: {
+            sessionId: session.id,
+            userId: session.userId,
+            type: 'DISCONNECT',
+            metadata: metadata as Prisma.InputJsonValue,
+            ipAddress: session.publicIp || null,
+          },
+        }),
+      ]
+    }))
+
+    await Promise.all(staleSessions.map(session => logAuditEvent({
+      actor,
+      action: 'ATTENDANCE_STALE_HEARTBEAT_DETECTED',
+      entity: 'AttendanceSession',
+      entityId: session.id,
+      metadata: {
+        heartbeatAgeSeconds: nowSecondsSince(session.lastHeartbeatAt),
+        heartbeatTimeoutSeconds: MISSED_HEARTBEAT_SECONDS,
+      },
+      ipAddress: session.publicIp || null,
+    })))
+
+    sessions = await prisma.attendanceSession.findMany({
+      where: sessionWhere,
+      orderBy: { clockInAt: 'desc' },
+      include: { events: { orderBy: { createdAt: 'desc' }, take: 5 } },
+      take: Math.min((filters.limit || 250) * 2, 700),
+    })
+  }
+
   const latestByUser = new Map<number, typeof sessions[number]>()
   for (const session of sessions) {
     if (!latestByUser.has(session.userId)) latestByUser.set(session.userId, session)
   }
 
-  const now = new Date()
-  const staleActiveIds = sessions
-    .filter(session => ACTIVE_STATUSES.includes(session.status) && session.lastHeartbeatAt && nowSecondsSince(session.lastHeartbeatAt) > MISSED_HEARTBEAT_SECONDS)
-    .map(session => session.id)
-
   const rows = users.map(user => {
     const session = latestByUser.get(user.id) || null
     const activeSeconds = session && ACTIVE_STATUSES.includes(session.status) ? workedSecondsFor(session.clockInAt) : session?.totalWorkedSeconds || 0
     const heartbeatAgeSeconds = session?.lastHeartbeatAt ? nowSecondsSince(session.lastHeartbeatAt) : null
-    const status = session && staleActiveIds.includes(session.id) ? 'UNEXPECTED_DISCONNECT' : session?.status || 'NO_SESSION'
+    const status = session?.status || 'NO_SESSION'
     return {
       user,
       session,
