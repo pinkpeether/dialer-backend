@@ -237,11 +237,64 @@ export const markDisconnect = async (actor: ScopeActor, sessionId: number, metad
 
 export const getMyActiveSession = async (actor: ScopeActor) => {
   if (!actor?.id) throw new AppError('Unauthorized', 401)
-  return prisma.attendanceSession.findFirst({
+  const active = await prisma.attendanceSession.findFirst({
     where: { userId: actor.id, status: { in: ACTIVE_STATUSES } },
     orderBy: { clockInAt: 'desc' },
     include: { events: { orderBy: { createdAt: 'desc' }, take: 10 } },
   })
+  if (!active) return null
+
+  const heartbeatAgeSeconds = nowSecondsSince(active.lastHeartbeatAt)
+  if (active.lastHeartbeatAt && heartbeatAgeSeconds > MISSED_HEARTBEAT_SECONDS) {
+    const updated = await prisma.attendanceSession.update({
+      where: { id: active.id },
+      data: {
+        status: 'UNEXPECTED_DISCONNECT',
+        disconnectCount: { increment: 1 },
+        redFlag: true,
+        redFlagReason: active.redFlagReason || 'Heartbeat stopped before Clock-Out.',
+      },
+    })
+    await event({
+      sessionId: updated.id,
+      userId: updated.userId,
+      type: 'DISCONNECT',
+      metadata: {
+        reason: 'STALE_HEARTBEAT_ON_SELF_RESUME',
+        heartbeatAgeSeconds,
+        heartbeatTimeoutSeconds: MISSED_HEARTBEAT_SECONDS,
+      } as Prisma.InputJsonValue,
+      ipAddress: updated.publicIp || null,
+    })
+    await logAuditEvent({
+      actor,
+      action: 'ATTENDANCE_STALE_HEARTBEAT_DETECTED',
+      entity: 'AttendanceSession',
+      entityId: updated.id,
+      metadata: {
+        heartbeatAgeSeconds,
+        heartbeatTimeoutSeconds: MISSED_HEARTBEAT_SECONDS,
+      },
+      ipAddress: updated.publicIp || null,
+    })
+    return null
+  }
+
+  const totalWorkedSeconds = workedSecondsFor(active.clockInAt)
+  if (totalWorkedSeconds > MAX_SHIFT_SECONDS && !active.redFlag) {
+    return prisma.attendanceSession.update({
+      where: { id: active.id },
+      data: {
+        totalWorkedSeconds,
+        productiveSeconds: Math.max(0, totalWorkedSeconds - active.idleSeconds - active.totalBreakSeconds),
+        redFlag: true,
+        redFlagReason: 'Active session exceeded maximum shift length.',
+      },
+      include: { events: { orderBy: { createdAt: 'desc' }, take: 10 } },
+    })
+  }
+
+  return active
 }
 
 export const listOverview = async (actor: ScopeActor, filters: { status?: string; from?: Date; to?: Date; limit?: number }) => {
