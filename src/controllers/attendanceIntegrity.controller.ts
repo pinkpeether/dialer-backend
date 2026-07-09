@@ -55,6 +55,15 @@ export const disconnect = async (req: AuthRequest, res: Response, next: NextFunc
   }
 }
 
+export const sipPresence = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const presence = await Attendance.updateSipPresence(req.user, req.body || {}, ipOf(req))
+    return sendSuccess(res, presence, 'SIP presence updated')
+  } catch (err) {
+    return next(err)
+  }
+}
+
 export const me = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const session = await Attendance.getMyActiveSession(req.user)

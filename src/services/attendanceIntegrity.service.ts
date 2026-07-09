@@ -18,7 +18,17 @@ type ClockMetadata = {
   keyboardActivity?: boolean
 }
 
+type SipPresencePayload = {
+  enabled?: boolean
+  status?: string
+  username?: string
+  transport?: string
+  domain?: string
+  webSocketServer?: string
+}
+
 const ACTIVE_STATUSES: AttendanceSessionStatus[] = ['CLOCKED_IN', 'IDLE', 'ON_BREAK', 'PENDING_SUPERVISOR_REVIEW']
+const ACTIVE_SIP_STATUSES = ['registered', 'in_call', 'calling', 'incoming']
 const MAX_SHIFT_SECONDS = Number(process.env.ATTENDANCE_MAX_SHIFT_SECONDS || 43_200)
 const MISSED_HEARTBEAT_SECONDS = Number(process.env.ATTENDANCE_MISSED_HEARTBEAT_SECONDS || 180)
 
@@ -48,6 +58,16 @@ const firstMismatch = (session: {
 }
 
 const multipleBrowserReason = (field: string) => `Multiple browser/device attendance session detected from a different ${field}.`
+
+const cleanSipText = (value?: string | null, maxLength = 180) => {
+  const next = String(value || '').trim()
+  return next ? next.slice(0, maxLength) : null
+}
+
+const cleanSipStatus = (value?: string | null) => {
+  const next = String(value || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_')
+  return next || 'disabled'
+}
 
 const flagIfSessionMismatch = async (
   actor: ScopeActor,
@@ -297,12 +317,82 @@ export const getMyActiveSession = async (actor: ScopeActor) => {
   return active
 }
 
+export const updateSipPresence = async (actor: ScopeActor, payload: SipPresencePayload, ipAddress?: string | null) => {
+  if (!actor?.id) throw new AppError('Unauthorized', 401)
+  const user = await prisma.user.findUnique({ where: { id: actor.id }, select: { id: true, role: true } })
+  if (!user) throw new AppError('User not found', 404)
+
+  const now = new Date()
+  const requestedStatus = cleanSipStatus(payload.status)
+  const enabled = Boolean(payload.enabled)
+  const registered = enabled && ACTIVE_SIP_STATUSES.includes(requestedStatus)
+  const status = enabled ? requestedStatus : 'disabled'
+
+  const record = await prisma.sipPresence.upsert({
+    where: { userId: actor.id },
+    create: {
+      userId: actor.id,
+      enabled,
+      registered,
+      status,
+      username: cleanSipText(payload.username, 80),
+      transport: cleanSipText(payload.transport, 16),
+      domain: cleanSipText(payload.domain, 160),
+      webSocketServer: cleanSipText(payload.webSocketServer, 240),
+      lastSeenAt: now,
+      ...(registered ? { lastRegisteredAt: now } : { lastUnregisteredAt: now }),
+    },
+    update: {
+      enabled,
+      registered,
+      status,
+      username: cleanSipText(payload.username, 80),
+      transport: cleanSipText(payload.transport, 16),
+      domain: cleanSipText(payload.domain, 160),
+      webSocketServer: cleanSipText(payload.webSocketServer, 240),
+      lastSeenAt: now,
+      ...(registered ? { lastRegisteredAt: now } : { lastUnregisteredAt: now }),
+    },
+  })
+
+  await logAuditEvent({
+    actor,
+    action: 'SIP_PRESENCE_UPDATE',
+    entity: 'SipPresence',
+    entityId: record.id,
+    metadata: { enabled, registered, status, username: record.username, transport: record.transport, domain: record.domain },
+    ipAddress,
+  })
+
+  return record
+}
+
 export const listOverview = async (actor: ScopeActor, filters: { status?: string; from?: Date; to?: Date; limit?: number }) => {
   const userWhere = await userScopeWhere(actor)
   const roleWhere: Prisma.UserWhereInput = { role: { in: ['AGENT', 'SUPERVISOR'] } }
   const users = await prisma.user.findMany({
     where: { AND: [userWhere, roleWhere] },
-    select: { id: true, name: true, email: true, role: true, status: true, isActive: true },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      status: true,
+      isActive: true,
+      sipPresence: {
+        select: {
+          enabled: true,
+          registered: true,
+          status: true,
+          username: true,
+          transport: true,
+          domain: true,
+          lastRegisteredAt: true,
+          lastUnregisteredAt: true,
+          lastSeenAt: true,
+        },
+      },
+    },
     orderBy: { createdAt: 'desc' },
     take: Math.min(filters.limit || 250, 500),
   })

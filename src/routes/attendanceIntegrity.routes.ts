@@ -15,6 +15,7 @@ router.post('/clock-in', authorize(...selfRoles), AttendanceController.clockIn)
 router.post('/clock-out', authorize(...selfRoles), AttendanceController.clockOut)
 router.post('/heartbeat', authorize(...selfRoles), AttendanceController.heartbeat)
 router.post('/disconnect', authorize(...selfRoles), AttendanceController.disconnect)
+router.post('/sip-presence', authorize(...selfRoles), AttendanceController.sipPresence)
 
 router.get('/overview', authorize(...viewerRoles), AttendanceController.overview)
 router.patch('/sessions/:id/review', authorize(...reviewerRoles), AttendanceController.review)
