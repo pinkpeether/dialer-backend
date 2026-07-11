@@ -34,7 +34,7 @@ export const startCampaign = async (campaignId: number) => {
   logger.info(`🚀 Starting ${mode} campaign engine: ${campaign.name}`)
   await prisma.campaign.update({
     where: { id: campaignId },
-    data: { waitingReason: null, lastSchedulerCheckAt: new Date() },
+    data: { waitingReason: null, emergencyStopped: false, lastSchedulerCheckAt: new Date() },
   })
   await dialNext(campaignId)
 }
@@ -54,7 +54,7 @@ const completeIfExhausted = async (campaignId: number) => {
   const remainingRows = await prisma.contact.findMany({
     where: {
       campaignId,
-      status: { in: ['PENDING', 'NO_ANSWER', 'BUSY', 'FAILED', 'VOICEMAIL'] as never },
+      status: { in: ['PENDING', 'CALLBACK', 'NO_ANSWER', 'BUSY', 'FAILED'] as never },
     },
     select: { retryCount: true, maxRetries: true },
   })
@@ -91,12 +91,14 @@ export const dialNext = async (campaignId: number) => {
     }
 
     const snapshot = await getPredictiveEngineSnapshot(campaignId, activeCampaigns.has(campaignId))
-    if (snapshot.guardrails.reasons.includes('NO_READY_AGENTS')) {
+    const blockingGuardrails = snapshot.guardrails.reasons.filter(reason => !['NO_ELIGIBLE_CONTACTS', 'HOPPER_EMPTY'].includes(reason))
+    if (blockingGuardrails.length > 0) {
+      const reason = blockingGuardrails[0] || 'ENGINE_GUARDRAIL_WAIT'
       await prisma.campaign.update({
         where: { id: campaignId },
-        data: { waitingReason: 'NO_READY_AGENTS', lastSchedulerCheckAt: new Date() },
+        data: { waitingReason: reason, lastSchedulerCheckAt: new Date() },
       })
-      scheduleNextTick(campaignId, WAIT_TICK_MS)
+      scheduleNextTick(campaignId, reason === 'ABANDON_RATE_EXCEEDED' ? Math.max(WAIT_TICK_MS, campaign.hopperRefillInterval * 1000) : WAIT_TICK_MS)
       return
     }
 
@@ -156,7 +158,7 @@ export const dialNext = async (campaignId: number) => {
       data: { waitingReason: null, lastSchedulerCheckAt: new Date() },
     })
 
-    scheduleNextTick(campaignId, mode === DIALING_MODES.PREDICTIVE ? 7_500 : DEFAULT_TICK_MS)
+    scheduleNextTick(campaignId, mode === DIALING_MODES.PREDICTIVE ? Math.max(3_000, campaign.hopperRefillInterval * 1000) : DEFAULT_TICK_MS)
   } catch (err) {
     logger.error(`Dialer error for campaign ${campaignId}: ${err}`)
     await prisma.campaign.update({

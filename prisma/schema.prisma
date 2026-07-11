@@ -128,6 +128,25 @@ model Campaign {
   status               CampaignStatus   @default(DRAFT)
   callerId             String
   dialingRatio         Int              @default(1)
+  predictiveEnabled    Boolean          @default(false)
+  adaptiveDialEnabled  Boolean          @default(true)
+  autoDialLevel        Float            @default(1)
+  minimumHopper        Int              @default(25)
+  maximumHopper        Int              @default(200)
+  hopperRefillInterval Int              @default(30)
+  wrapUpTime           Int              @default(30)
+  maximumAbandonRate   Float            @default(0.03)
+  maximumSimultaneousCalls Int           @default(50)
+  maximumCallsPerAgent Float            @default(1)
+  callTimeout          Int              @default(60)
+  ringTimeout          Int              @default(30)
+  agentReservationTime Int              @default(15)
+  maximumQueueWait     Int              @default(45)
+  dialStatusFilter     Json?
+  leadPriority         Json?
+  callPriority         String           @default("NORMAL")
+  localCallTime        Boolean          @default(true)
+  emergencyStopped     Boolean          @default(false)
   maxRetries           Int              @default(3)
   retryDelay           Int              @default(300)
   script               String?
