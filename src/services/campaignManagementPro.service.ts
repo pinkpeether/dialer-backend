@@ -47,6 +47,12 @@ const clampInt = (value: unknown, fallback: number, min: number, max: number) =>
   return Math.max(min, Math.min(max, Math.floor(numberValue)))
 }
 
+const clampFloat = (value: unknown, fallback: number, min: number, max: number) => {
+  const numberValue = Number(value)
+  if (!Number.isFinite(numberValue)) return fallback
+  return Math.max(min, Math.min(max, Math.round(numberValue * 10) / 10))
+}
+
 const escapePdfText = (value: string) => value
   .replace(/\\/g, '\\\\')
   .replace(/\(/g, '\\(')
@@ -407,6 +413,25 @@ export const getDialSettings = async (campaignId: number) => {
     campaignId,
     mode: normalizeMode(campaign.mode),
     dialingRatio: campaign.dialingRatio,
+    predictiveEnabled: campaign.predictiveEnabled,
+    adaptiveDialEnabled: campaign.adaptiveDialEnabled,
+    autoDialLevel: campaign.autoDialLevel,
+    minimumHopper: campaign.minimumHopper,
+    maximumHopper: campaign.maximumHopper,
+    hopperRefillInterval: campaign.hopperRefillInterval,
+    wrapUpTime: campaign.wrapUpTime,
+    maximumAbandonRate: campaign.maximumAbandonRate,
+    maximumSimultaneousCalls: campaign.maximumSimultaneousCalls,
+    maximumCallsPerAgent: campaign.maximumCallsPerAgent,
+    callTimeout: campaign.callTimeout,
+    ringTimeout: campaign.ringTimeout,
+    agentReservationTime: campaign.agentReservationTime,
+    maximumQueueWait: campaign.maximumQueueWait,
+    dialStatusFilter: campaign.dialStatusFilter,
+    leadPriority: campaign.leadPriority,
+    callPriority: campaign.callPriority,
+    localCallTime: campaign.localCallTime,
+    emergencyStopped: campaign.emergencyStopped,
     maxRetries: campaign.maxRetries,
     retryDelay: campaign.retryDelay,
     startTime: campaign.startTime,
@@ -425,7 +450,24 @@ export const updateDialSettings = async (campaignId: number, data: Record<string
     where: { id: campaignId },
     data: {
       mode: data.mode !== undefined ? normalizeMode(data.mode) : campaign.mode,
-      dialingRatio: data.dialingRatio !== undefined ? clampInt(data.dialingRatio, campaign.dialingRatio, 1, 10) : campaign.dialingRatio,
+      dialingRatio: data.dialingRatio !== undefined ? clampInt(data.dialingRatio, campaign.dialingRatio, 0, 3) : campaign.dialingRatio,
+      predictiveEnabled: data.predictiveEnabled !== undefined ? Boolean(data.predictiveEnabled) : campaign.predictiveEnabled,
+      adaptiveDialEnabled: data.adaptiveDialEnabled !== undefined ? Boolean(data.adaptiveDialEnabled) : campaign.adaptiveDialEnabled,
+      autoDialLevel: data.autoDialLevel !== undefined ? clampFloat(data.autoDialLevel, campaign.autoDialLevel, 0, 3) : campaign.autoDialLevel,
+      minimumHopper: data.minimumHopper !== undefined ? clampInt(data.minimumHopper, campaign.minimumHopper, 1, 1000) : campaign.minimumHopper,
+      maximumHopper: data.maximumHopper !== undefined ? clampInt(data.maximumHopper, campaign.maximumHopper, 1, 5000) : campaign.maximumHopper,
+      hopperRefillInterval: data.hopperRefillInterval !== undefined ? clampInt(data.hopperRefillInterval, campaign.hopperRefillInterval, 5, 3600) : campaign.hopperRefillInterval,
+      wrapUpTime: data.wrapUpTime !== undefined ? clampInt(data.wrapUpTime, campaign.wrapUpTime, 0, 3600) : campaign.wrapUpTime,
+      maximumAbandonRate: data.maximumAbandonRate !== undefined ? clampFloat(data.maximumAbandonRate, campaign.maximumAbandonRate, 0, 0.2) : campaign.maximumAbandonRate,
+      maximumSimultaneousCalls: data.maximumSimultaneousCalls !== undefined ? clampInt(data.maximumSimultaneousCalls, campaign.maximumSimultaneousCalls, 1, 500) : campaign.maximumSimultaneousCalls,
+      maximumCallsPerAgent: data.maximumCallsPerAgent !== undefined ? clampFloat(data.maximumCallsPerAgent, campaign.maximumCallsPerAgent, 0.5, 5) : campaign.maximumCallsPerAgent,
+      callTimeout: data.callTimeout !== undefined ? clampInt(data.callTimeout, campaign.callTimeout, 5, 600) : campaign.callTimeout,
+      ringTimeout: data.ringTimeout !== undefined ? clampInt(data.ringTimeout, campaign.ringTimeout, 5, 300) : campaign.ringTimeout,
+      agentReservationTime: data.agentReservationTime !== undefined ? clampInt(data.agentReservationTime, campaign.agentReservationTime, 1, 300) : campaign.agentReservationTime,
+      maximumQueueWait: data.maximumQueueWait !== undefined ? clampInt(data.maximumQueueWait, campaign.maximumQueueWait, 1, 600) : campaign.maximumQueueWait,
+      callPriority: data.callPriority !== undefined ? String(data.callPriority || 'NORMAL').toUpperCase() : campaign.callPriority,
+      localCallTime: data.localCallTime !== undefined ? Boolean(data.localCallTime) : campaign.localCallTime,
+      emergencyStopped: data.emergencyStopped !== undefined ? Boolean(data.emergencyStopped) : campaign.emergencyStopped,
       maxRetries: data.maxRetries !== undefined ? clampInt(data.maxRetries, campaign.maxRetries, 0, 20) : campaign.maxRetries,
       retryDelay: data.retryDelay !== undefined ? clampInt(data.retryDelay, campaign.retryDelay, 30, 86400) : campaign.retryDelay,
       startTime: data.startTime !== undefined ? cleanText(data.startTime) : campaign.startTime,

@@ -2,7 +2,7 @@ import type { Prisma } from '@prisma/client'
 
 type Tx = Prisma.TransactionClient
 
-export const RETRYABLE_DISPOSITIONS = ['NO_ANSWER', 'VOICEMAIL'] as const
+export const RETRYABLE_DISPOSITIONS = ['BUSY', 'NO_ANSWER', 'FAILED'] as const
 
 export const shouldRetryDisposition = (disposition: string) => {
   return RETRYABLE_DISPOSITIONS.includes(disposition as (typeof RETRYABLE_DISPOSITIONS)[number])

@@ -19,6 +19,12 @@ export const pacingPreview = async (req: AuthRequest, res: Response, next: NextF
     const result = calculatePredictivePacingV2({
       readyAgents: Number(req.body.readyAgents || 0),
       answerRate: Number(req.body.answerRate || 0.1),
+      activeCalls: req.body.activeCalls ? Number(req.body.activeCalls) : undefined,
+      abandonRate: req.body.abandonRate ? Number(req.body.abandonRate) : undefined,
+      autoDialLevel: req.body.autoDialLevel ? Number(req.body.autoDialLevel) : undefined,
+      adaptiveDialEnabled: req.body.adaptiveDialEnabled !== undefined ? Boolean(req.body.adaptiveDialEnabled) : undefined,
+      maxAbandonRate: req.body.maxAbandonRate ? Number(req.body.maxAbandonRate) : undefined,
+      maxSimultaneousCalls: req.body.maxSimultaneousCalls ? Number(req.body.maxSimultaneousCalls) : undefined,
       maxCallsPerReadyAgent: req.body.maxCallsPerReadyAgent ? Number(req.body.maxCallsPerReadyAgent) : undefined,
       safetyMultiplier: req.body.safetyMultiplier ? Number(req.body.safetyMultiplier) : undefined,
     })
