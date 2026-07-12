@@ -5,7 +5,7 @@ import * as LiveAiController from '../controllers/liveAi.controller'
 const router = Router()
 
 router.use(authenticate)
-router.use(authorize('ADMIN', 'SUPERVISOR', 'AGENT'))
+router.use(authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR', 'AGENT'))
 
 router.get('/sessions', LiveAiController.listSessions)
 router.post('/calls/:callId/start', LiveAiController.startSession)
