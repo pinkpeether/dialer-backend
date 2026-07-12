@@ -7,7 +7,7 @@ const router = Router()
 router.use(authenticate)
 
 router.get('/capabilities',
-  authorize('ADMIN', 'SUPERVISOR', 'AGENT'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR', 'AGENT'),
   CallControlController.capabilities
 )
 
@@ -17,7 +17,7 @@ router.get('/active-calls',
 )
 
 router.post('/actions/:action',
-  authorize('ADMIN', 'SUPERVISOR', 'AGENT'),
+  authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR', 'AGENT'),
   CallControlController.runAction
 )
 
