@@ -5,7 +5,7 @@ import * as SmsController from '../controllers/sms.controller'
 const router = Router()
 
 router.use(authenticate)
-router.use(authorize('ADMIN', 'SUPERVISOR', 'AGENT'))
+router.use(authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR', 'AGENT'))
 
 router.get('/config', SmsController.getConfig)
 router.post('/send', SmsController.sendSms)

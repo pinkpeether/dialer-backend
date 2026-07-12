@@ -5,7 +5,7 @@ import * as ContactManagementProController from '../controllers/contactManagemen
 const router = Router()
 
 router.use(authenticate)
-router.use(authorize('ADMIN', 'SUPERVISOR'))
+router.use(authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'))
 
 router.get('/duplicates', ContactManagementProController.duplicates)
 router.post('/import/preview', ContactManagementProController.importPreview)
