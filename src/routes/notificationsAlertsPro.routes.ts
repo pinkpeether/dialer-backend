@@ -5,7 +5,7 @@ import * as controller from '../controllers/notificationsAlertsPro.controller'
 const router = Router()
 
 router.use(authenticate)
-router.use(authorize('ADMIN', 'SUPERVISOR', 'AGENT'))
+router.use(authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR', 'AGENT'))
 
 router.get('/summary', controller.getSummary)
 router.get('/preferences', controller.getPreferences)
