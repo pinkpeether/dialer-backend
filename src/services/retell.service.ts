@@ -108,22 +108,26 @@ function postJson<TResponse>(
   apiBaseUrl: string,
   apiKey: string,
   path: string,
-  body: Record<string, unknown>,
+  body?: Record<string, unknown>,
 ): Promise<TResponse> {
   return new Promise((resolve, reject) => {
     const url = new URL(path, apiBaseUrl)
-    const payload = JSON.stringify(body)
+    const payload = body === undefined ? '' : JSON.stringify(body)
+    const headers: Record<string, string | number> = {
+      Authorization: `Bearer ${apiKey}`,
+      Accept: 'application/json',
+    }
+
+    if (body !== undefined) {
+      headers['Content-Type'] = 'application/json'
+      headers['Content-Length'] = Buffer.byteLength(payload)
+    }
 
     const req = https.request(
       url,
       {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(payload),
-        },
+        headers,
       },
       res => {
         const chunks: Buffer[] = []
@@ -157,7 +161,7 @@ function postJson<TResponse>(
       reject(new RetellServiceError(err.message || 'Retell API request failed', 502))
     })
 
-    req.write(payload)
+    if (payload) req.write(payload)
     req.end()
   })
 }
@@ -299,7 +303,6 @@ export async function stopRetellPhoneCall(callId: string): Promise<RetellPhoneCa
     config.apiBaseUrl,
     config.apiKey,
     `/v2/stop-call/${encodeURIComponent(cleanCallId)}`,
-    {},
   )
 
   return Object.keys(response || {}).length > 0 ? response : { call_id: cleanCallId, call_status: 'ended' }
