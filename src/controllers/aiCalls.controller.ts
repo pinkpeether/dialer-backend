@@ -4,6 +4,7 @@ import {
   getAiCallLogRecordById,
   getAiCallLogRecordByProviderCallId,
   listAiCallLogRecords,
+  markAiCallLogHangupRequested,
   upsertAiCallLogFromRetellWebhook,
 } from '../services/aiCallLog.service'
 import * as Scope from '../services/commercialScope.service'
@@ -282,6 +283,35 @@ function isRetellAlreadyEndedFailure(error: unknown) {
     || text.includes('completed')
     || text.includes('not ongoing')
     || text.includes('not in progress')
+    || text.includes('not active')
+    || text.includes('inactive')
+    || text.includes('already stopped')
+    || text.includes('has stopped')
+    || text.includes('has finished')
+    || text.includes('no longer')
+}
+
+function isTerminalCallStatus(status: unknown) {
+  const key = getStringField(status).toLowerCase().replace(/[\s-]+/g, '_')
+  return [
+    'completed',
+    'ended',
+    'done',
+    'failed',
+    'error',
+    'stopped',
+    'cancelled',
+    'canceled',
+  ].includes(key)
+}
+
+function logRetellHangupFailure(context: string, error: unknown) {
+  if (!(error instanceof RetellServiceError)) return
+
+  console.warn(`[ai-call-hangup] ${context}`, {
+    statusCode: error.statusCode,
+    payload: error.payload || null,
+  })
 }
 
 function handleRetellError(error: unknown, res: Response, next: NextFunction) {
@@ -425,28 +455,50 @@ export async function hangupOutboundAiCallByProviderId(req: Request, res: Respon
       return
     }
 
-    const stoppedCall = await stopRetellPhoneCall(providerCallId)
-
-    res.status(200).json({
-      success: true,
-      message: 'AI call hangup requested',
-      provider: 'retell',
-      ...summarizeRetellCall(stoppedCall),
-      callId: item.id,
-      providerCallId,
-    })
-  } catch (error) {
-    if (isRetellAlreadyEndedFailure(error)) {
+    if (isTerminalCallStatus(item.callStatus)) {
       res.status(200).json({
         success: true,
         message: 'AI call already ended.',
         provider: 'retell',
         status: 'ended',
-        providerCallId: getStringField(req.params.providerCallId),
+        callId: item.id,
+        providerCallId,
       })
       return
     }
 
+    const stoppedCall = await stopRetellPhoneCall(providerCallId)
+    const storedCall = await markAiCallLogHangupRequested({ id: Number(item.id), providerCallId, call: stoppedCall })
+    const summary = summarizeRetellCall(stoppedCall)
+
+    res.status(200).json({
+      success: true,
+      message: 'AI call hangup requested',
+      provider: 'retell',
+      ...summary,
+      status: summary.callStatus || storedCall?.callStatus || 'ended',
+      durationMs: summary.durationMs || storedCall?.durationMs || null,
+      callId: item.id,
+      providerCallId,
+    })
+  } catch (error) {
+    if (isRetellAlreadyEndedFailure(error)) {
+      logRetellHangupFailure('provider call was already ended by Retell', error)
+      const providerCallId = getStringField(req.params.providerCallId)
+      const storedCall = await markAiCallLogHangupRequested({ providerCallId })
+
+      res.status(200).json({
+        success: true,
+        message: 'AI call already ended.',
+        provider: 'retell',
+        status: 'ended',
+        callId: storedCall?.id || null,
+        providerCallId,
+      })
+      return
+    }
+
+    logRetellHangupFailure('provider hangup failed', error)
     handleRetellError(error, res, next)
   }
 }
@@ -487,28 +539,52 @@ export async function hangupOutboundAiCall(req: Request, res: Response, next: Ne
       return
     }
 
-    const stoppedCall = await stopRetellPhoneCall(providerCallId)
-
-    res.status(200).json({
-      success: true,
-      message: 'AI call hangup requested',
-      provider: 'retell',
-      ...summarizeRetellCall(stoppedCall),
-      callId: id,
-      providerCallId,
-    })
-  } catch (error) {
-    if (isRetellAlreadyEndedFailure(error)) {
+    if (isTerminalCallStatus(item.callStatus)) {
       res.status(200).json({
         success: true,
         message: 'AI call already ended.',
         provider: 'retell',
         status: 'ended',
-        callId: Number.parseInt(getStringField(req.params.id), 10),
+        callId: id,
+        providerCallId,
       })
       return
     }
 
+    const stoppedCall = await stopRetellPhoneCall(providerCallId)
+    const storedCall = await markAiCallLogHangupRequested({ id, providerCallId, call: stoppedCall })
+    const summary = summarizeRetellCall(stoppedCall)
+
+    res.status(200).json({
+      success: true,
+      message: 'AI call hangup requested',
+      provider: 'retell',
+      ...summary,
+      status: summary.callStatus || storedCall?.callStatus || 'ended',
+      durationMs: summary.durationMs || storedCall?.durationMs || null,
+      callId: id,
+      providerCallId,
+    })
+  } catch (error) {
+    if (isRetellAlreadyEndedFailure(error)) {
+      logRetellHangupFailure('log call was already ended by Retell', error)
+      const id = Number.parseInt(getStringField(req.params.id), 10)
+      const storedCall = Number.isFinite(id) && id > 0
+        ? await markAiCallLogHangupRequested({ id })
+        : null
+
+      res.status(200).json({
+        success: true,
+        message: 'AI call already ended.',
+        provider: 'retell',
+        status: 'ended',
+        callId: Number.isFinite(id) && id > 0 ? id : null,
+        providerCallId: storedCall?.providerCallId || null,
+      })
+      return
+    }
+
+    logRetellHangupFailure('log hangup failed', error)
     handleRetellError(error, res, next)
   }
 }

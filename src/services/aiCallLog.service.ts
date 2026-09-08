@@ -385,6 +385,42 @@ export async function listAiCallLogRecords(input: AiCallLogListInput, actor?: Sc
   }
 }
 
+export async function markAiCallLogHangupRequested(input: {
+  id?: number
+  providerCallId?: string
+  call?: RetellPhoneCallResponse | Record<string, unknown> | null
+}) {
+  const providerCallId = getString(input.providerCallId || input.call?.call_id)
+  const durationMs = getNumber(input.call?.duration_ms)
+  const callStatus = optionalString(input.call?.call_status) || 'ended'
+  const disconnectionReason = optionalString(input.call?.disconnection_reason) || 'manual_hangup_requested'
+
+  const data: Prisma.AiCallLogUpdateInput = {
+    lastEvent: 'manual_hangup_requested',
+    callStatus,
+    disconnectionReason,
+    lastWebhookAt: new Date(),
+  }
+
+  if (durationMs !== undefined) {
+    data.durationMs = durationMs
+  }
+
+  const where = input.id
+    ? { id: input.id }
+    : providerCallId
+      ? { providerCallId }
+      : null
+
+  if (!where) return null
+
+  return prisma.aiCallLog.update({
+    where,
+    data,
+    select: detailSelect,
+  }).catch(() => null)
+}
+
 export async function getAiCallLogRecordById(id: number, includeRaw = false, actor?: Scope.ScopeActor) {
   const where = await buildAiCallLogWhere({ page: 1, limit: 1 }, actor)
   return prisma.aiCallLog.findFirst({
