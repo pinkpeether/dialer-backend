@@ -9,6 +9,7 @@ import * as Scope from '../services/commercialScope.service'
 import {
   createRetellOutboundPhoneCall,
   getRetellPhoneCall,
+  stopRetellPhoneCall,
   RetellPhoneCallResponse,
   RetellServiceError,
   verifyRetellWebhookSignature,
@@ -362,6 +363,7 @@ export async function startOutboundAiCall(req: Request, res: Response, next: Nex
       success: true,
       message: 'AI call started',
       callId: storedAiCallLog?.id ?? null,
+      providerCallId: storedAiCallLog?.providerCallId || getStringField(call.call_id) || null,
       displayCallId: storedAiCallLog?.id ? `#${storedAiCallLog.id}` : null,
       status: getStringField(call.call_status) || 'queued',
       toNumber: maskPhoneNumber(toNumber),
@@ -370,6 +372,57 @@ export async function startOutboundAiCall(req: Request, res: Response, next: Nex
     })
   } catch (error) {
     handleAiOutboundError(error, res, next)
+  }
+}
+
+export async function hangupOutboundAiCall(req: Request, res: Response, next: NextFunction) {
+  try {
+    const id = Number.parseInt(getStringField(req.params.id), 10)
+
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({
+        success: false,
+        message: 'AI call log id is invalid',
+        provider: 'retell',
+      })
+      return
+    }
+
+    const actor = (req as AiCallRequestWithUser).user
+    const item = await getAiCallLogRecordById(id, false, actor)
+
+    if (!item) {
+      res.status(404).json({
+        success: false,
+        message: 'AI call log was not found',
+        provider: 'retell',
+      })
+      return
+    }
+
+    const providerCallId = getStringField(item.providerCallId)
+
+    if (!providerCallId) {
+      res.status(409).json({
+        success: false,
+        message: 'Retell call id is not available for this AI call.',
+        provider: 'retell',
+      })
+      return
+    }
+
+    const stoppedCall = await stopRetellPhoneCall(providerCallId)
+
+    res.status(200).json({
+      success: true,
+      message: 'AI call hangup requested',
+      provider: 'retell',
+      ...summarizeRetellCall(stoppedCall),
+      callId: id,
+      providerCallId,
+    })
+  } catch (error) {
+    handleRetellError(error, res, next)
   }
 }
 

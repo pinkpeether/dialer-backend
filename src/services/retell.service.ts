@@ -289,6 +289,20 @@ export async function createRetellOutboundPhoneCall(
   )
 }
 
+export async function stopRetellPhoneCall(callId: string): Promise<RetellPhoneCallResponse> {
+  const cleanCallId = callId.trim()
+  assertRetellCallId(cleanCallId)
+
+  const config = getRetellApiConfig()
+
+  return postJson<RetellPhoneCallResponse>(
+    config.apiBaseUrl,
+    config.apiKey,
+    `/v2/stop-call/${encodeURIComponent(cleanCallId)}`,
+    {},
+  )
+}
+
 export async function getRetellPhoneCall(callId: string): Promise<RetellPhoneCallResponse> {
   const cleanCallId = callId.trim()
   assertRetellCallId(cleanCallId)

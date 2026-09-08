@@ -2,6 +2,7 @@ import { Router } from 'express'
 import {
   getAiCallLog,
   getRetellCallDebug,
+  hangupOutboundAiCall,
   listAiCallLogs,
   receiveRetellWebhook,
   startOutboundAiCall,
@@ -12,6 +13,7 @@ import { authenticate, authorize } from '../middleware/auth'
 const router = Router()
 
 router.post('/outbound', authenticate, authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'), startOutboundAiCall)
+router.post('/logs/:id/hangup', authenticate, authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'), hangupOutboundAiCall)
 router.post('/test-outbound', testOutboundAiCall)
 router.post('/retell/webhook', receiveRetellWebhook)
 
