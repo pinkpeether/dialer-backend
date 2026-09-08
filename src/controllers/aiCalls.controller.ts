@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express'
 import {
   createAiCallLogFromOutboundRequest,
   getAiCallLogRecordById,
+  getAiCallLogRecordByProviderCallId,
   listAiCallLogRecords,
   upsertAiCallLogFromRetellWebhook,
 } from '../services/aiCallLog.service'
@@ -259,6 +260,30 @@ function handleAiOutboundError(error: unknown, res: Response, next: NextFunction
   next(error)
 }
 
+function retellErrorText(value: unknown): string {
+  if (!value) return ''
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return ''
+  }
+}
+
+function isRetellAlreadyEndedFailure(error: unknown) {
+  if (!(error instanceof RetellServiceError)) return false
+  if (error.statusCode !== 400 && error.statusCode !== 404 && error.statusCode !== 409) return false
+
+  const text = `${error.message} ${retellErrorText(error.payload)}`.toLowerCase()
+  return text.includes('call not found')
+    || text.includes('not found')
+    || text.includes('already ended')
+    || text.includes('ended')
+    || text.includes('completed')
+    || text.includes('not ongoing')
+    || text.includes('not in progress')
+}
+
 function handleRetellError(error: unknown, res: Response, next: NextFunction) {
   if (error instanceof RetellServiceError) {
     res.status(error.statusCode).json({
@@ -388,6 +413,18 @@ export async function hangupOutboundAiCallByProviderId(req: Request, res: Respon
       return
     }
 
+    const actor = (req as AiCallRequestWithUser).user
+    const item = await getAiCallLogRecordByProviderCallId(providerCallId, false, actor)
+
+    if (!item) {
+      res.status(404).json({
+        success: false,
+        message: 'AI call log was not found for this Retell call.',
+        provider: 'retell',
+      })
+      return
+    }
+
     const stoppedCall = await stopRetellPhoneCall(providerCallId)
 
     res.status(200).json({
@@ -395,9 +432,21 @@ export async function hangupOutboundAiCallByProviderId(req: Request, res: Respon
       message: 'AI call hangup requested',
       provider: 'retell',
       ...summarizeRetellCall(stoppedCall),
+      callId: item.id,
       providerCallId,
     })
   } catch (error) {
+    if (isRetellAlreadyEndedFailure(error)) {
+      res.status(200).json({
+        success: true,
+        message: 'AI call already ended.',
+        provider: 'retell',
+        status: 'ended',
+        providerCallId: getStringField(req.params.providerCallId),
+      })
+      return
+    }
+
     handleRetellError(error, res, next)
   }
 }
@@ -449,6 +498,17 @@ export async function hangupOutboundAiCall(req: Request, res: Response, next: Ne
       providerCallId,
     })
   } catch (error) {
+    if (isRetellAlreadyEndedFailure(error)) {
+      res.status(200).json({
+        success: true,
+        message: 'AI call already ended.',
+        provider: 'retell',
+        status: 'ended',
+        callId: Number.parseInt(getStringField(req.params.id), 10),
+      })
+      return
+    }
+
     handleRetellError(error, res, next)
   }
 }

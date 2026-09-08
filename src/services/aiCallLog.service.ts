@@ -395,3 +395,15 @@ export async function getAiCallLogRecordById(id: number, includeRaw = false, act
     select: includeRaw ? { ...detailSelect, rawPayload: true } : detailSelect,
   })
 }
+
+
+export async function getAiCallLogRecordByProviderCallId(providerCallId: string, includeRaw = false, actor?: Scope.ScopeActor) {
+  const where = await buildAiCallLogWhere({ page: 1, limit: 1 }, actor)
+  return prisma.aiCallLog.findFirst({
+    where: {
+      providerCallId,
+      ...where,
+    },
+    select: includeRaw ? { ...detailSelect, rawPayload: true } : detailSelect,
+  })
+}
