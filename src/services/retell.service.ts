@@ -140,7 +140,7 @@ function postJson<TResponse>(
             return
           }
 
-          resolve(parsedBody as TResponse)
+          resolve((parsedBody ?? {}) as TResponse)
         })
       },
     )
@@ -295,12 +295,14 @@ export async function stopRetellPhoneCall(callId: string): Promise<RetellPhoneCa
 
   const config = getRetellApiConfig()
 
-  return postJson<RetellPhoneCallResponse>(
+  const response = await postJson<RetellPhoneCallResponse>(
     config.apiBaseUrl,
     config.apiKey,
     `/v2/stop-call/${encodeURIComponent(cleanCallId)}`,
     {},
   )
+
+  return Object.keys(response || {}).length > 0 ? response : { call_id: cleanCallId, call_status: 'ended' }
 }
 
 export async function getRetellPhoneCall(callId: string): Promise<RetellPhoneCallResponse> {

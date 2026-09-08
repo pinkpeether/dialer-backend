@@ -375,6 +375,33 @@ export async function startOutboundAiCall(req: Request, res: Response, next: Nex
   }
 }
 
+export async function hangupOutboundAiCallByProviderId(req: Request, res: Response, next: NextFunction) {
+  try {
+    const providerCallId = getStringField(req.params.providerCallId)
+
+    if (!providerCallId) {
+      res.status(400).json({
+        success: false,
+        message: 'Retell call id is required.',
+        provider: 'retell',
+      })
+      return
+    }
+
+    const stoppedCall = await stopRetellPhoneCall(providerCallId)
+
+    res.status(200).json({
+      success: true,
+      message: 'AI call hangup requested',
+      provider: 'retell',
+      ...summarizeRetellCall(stoppedCall),
+      providerCallId,
+    })
+  } catch (error) {
+    handleRetellError(error, res, next)
+  }
+}
+
 export async function hangupOutboundAiCall(req: Request, res: Response, next: NextFunction) {
   try {
     const id = Number.parseInt(getStringField(req.params.id), 10)

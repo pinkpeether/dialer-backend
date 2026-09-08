@@ -3,6 +3,7 @@ import {
   getAiCallLog,
   getRetellCallDebug,
   hangupOutboundAiCall,
+  hangupOutboundAiCallByProviderId,
   listAiCallLogs,
   receiveRetellWebhook,
   startOutboundAiCall,
@@ -14,6 +15,7 @@ const router = Router()
 
 router.post('/outbound', authenticate, authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'), startOutboundAiCall)
 router.post('/logs/:id/hangup', authenticate, authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'), hangupOutboundAiCall)
+router.post('/provider-calls/:providerCallId/hangup', authenticate, authorize('ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR'), hangupOutboundAiCallByProviderId)
 router.post('/test-outbound', testOutboundAiCall)
 router.post('/retell/webhook', receiveRetellWebhook)
 
