@@ -215,6 +215,7 @@ model Call {
   callbacks      Callback[]
   transcript     CallTranscript?
   insight        CallInsight?
+  commercialAuthorization CommercialCallAuthorization?
 }
 
 model CallTranscript {
@@ -521,6 +522,7 @@ model CommercialAccount {
   billingAlerts            CommercialBillingAlert[]
   memberships              CommercialAccountMembership[]
   campaigns                Campaign[]
+  callAuthorizations       CommercialCallAuthorization[]
 
   @@index([status])
   @@index([createdAt])
@@ -604,11 +606,14 @@ model CommercialWallet {
   currency         String                        @default("USD")
   availableBalance Decimal                       @default(0) @db.Decimal(12, 4)
   heldBalance      Decimal                       @default(0) @db.Decimal(12, 4)
+  includedSeconds  Int                           @default(0)
+  heldIncludedSeconds Int                        @default(0)
   creditLimit      Decimal                       @default(0) @db.Decimal(12, 4)
   createdAt        DateTime                      @default(now())
   updatedAt        DateTime                      @updatedAt
   account          CommercialAccount             @relation(fields: [accountId], references: [id], onDelete: Cascade)
   transactions     CommercialWalletTransaction[]
+  callAuthorizations CommercialCallAuthorization[]
 }
 
 model CommercialWalletTransaction {
@@ -632,6 +637,64 @@ model CommercialWalletTransaction {
   @@index([direction])
   @@index([referenceType, referenceId])
   @@index([createdAt])
+}
+
+enum CommercialCallAuthorizationStatus {
+  HELD
+  SETTLED
+  RELEASED
+}
+
+model CommercialProviderWallet {
+  id                  Int      @id @default(autoincrement())
+  provider            String   @unique
+  currency            String   @default("EUR")
+  availableBalance    Decimal  @default(0) @db.Decimal(12, 4)
+  reserveBalance      Decimal  @default(5) @db.Decimal(12, 4)
+  enforcementEnabled  Boolean  @default(false)
+  updatedAt           DateTime @updatedAt
+  createdAt           DateTime @default(now())
+}
+
+model CommercialCallingRate {
+  id                    Int      @id @default(autoincrement())
+  destinationCode       String   @unique
+  destinationName       String
+  dialPrefix             String
+  carrierRatePerMinute  Decimal  @default(0) @db.Decimal(12, 6)
+  customerRatePerMinute Decimal  @default(0) @db.Decimal(12, 6)
+  minimumSeconds        Int      @default(60)
+  incrementSeconds      Int      @default(60)
+  isActive              Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  authorizations        CommercialCallAuthorization[]
+
+  @@index([isActive])
+}
+
+model CommercialCallAuthorization {
+  id                    String                            @id @default(cuid())
+  accountId             Int
+  walletId              Int
+  callId                Int                               @unique
+  rateId                Int
+  destination           String
+  heldAmount            Decimal                           @default(0) @db.Decimal(12, 4)
+  heldIncludedSeconds   Int                               @default(0)
+  status                CommercialCallAuthorizationStatus @default(HELD)
+  settledAt             DateTime?
+  releasedAt            DateTime?
+  createdAt             DateTime                          @default(now())
+  updatedAt             DateTime                          @updatedAt
+  account               CommercialAccount                 @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  wallet                CommercialWallet                  @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  call                  Call                              @relation(fields: [callId], references: [id], onDelete: Cascade)
+  rate                  CommercialCallingRate             @relation(fields: [rateId], references: [id])
+
+  @@index([accountId])
+  @@index([walletId])
+  @@index([status])
 }
 
 model CommercialPaymentRequest {

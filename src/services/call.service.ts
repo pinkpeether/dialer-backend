@@ -3,6 +3,7 @@ import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import { applyDispositionRetry } from './retry.service'
 import { logAuditEvent } from './audit.service'
+import { callingBillingService } from './callingBilling.service'
 import { AUDIT_ACTIONS } from '../constants/auditActions'
 import { emitToDashboard } from '../socket/socket.server'
 import * as Scope from './commercialScope.service'
@@ -422,6 +423,8 @@ export const markCallEnded = async (
       campaign: { select: { id: true, name: true } },
     },
   })
+
+  await callingBillingService.settleCallAuthorization(id, duration).catch(() => undefined)
 
   emitDashboardEvent('call:ended', toDashboardCallPayload(call))
   return call

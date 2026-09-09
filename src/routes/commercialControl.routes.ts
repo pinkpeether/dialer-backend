@@ -22,5 +22,11 @@ router.post('/admin/accounts/:accountId/activate-plan', authorize('ADMIN'), Comm
 router.post('/admin/accounts/:accountId/topup', authorize('ADMIN'), CommercialControlController.topUpWallet)
 router.patch('/admin/accounts/:accountId/addons/:addonCode', authorize('ADMIN'), CommercialControlController.setAddonStatus)
 router.patch('/admin/accounts/:accountId/thresholds', authorize('ADMIN'), CommercialControlController.updateThresholds)
+router.get('/admin/calling-billing', authorize('ADMIN'), CommercialControlController.getCallingSetup)
+router.patch('/admin/calling-billing/provider', authorize('ADMIN'), CommercialControlController.updateCallingProvider)
+router.put('/admin/calling-billing/rates', authorize('ADMIN'), CommercialControlController.saveCallingRate)
+router.post('/admin/accounts/:accountId/calling-allowance', authorize('ADMIN'), CommercialControlController.grantCallingAllowance)
+router.post('/call-authorizations/:callId', authorize('SUPER_ADMIN', 'ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR', 'MANAGER', 'AGENT'), CommercialControlController.authorizeCallingCall)
+router.delete('/call-authorizations/:callId', authorize('SUPER_ADMIN', 'ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR', 'MANAGER', 'AGENT'), CommercialControlController.releaseCallingCall)
 
 export default router

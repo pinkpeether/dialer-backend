@@ -4,6 +4,7 @@ import logger from '../utils/logger'
 import { resolveDynamicCallerIdForCall } from './dynamicCallerIdRuntime.service'
 import { hangupBackendOriginatedCall, originateOutboundCall } from './asteriskAmi.service'
 import * as Scope from './commercialScope.service'
+import { callingBillingService } from './callingBilling.service'
 
 const DEFAULT_CALLER_ID = process.env.DEFAULT_OUTBOUND_CALLER_ID || ''
 
@@ -67,6 +68,7 @@ export const initiateCall = async (contactId: number, campaignId: number, actorO
   })
 
   try {
+    await callingBillingService.authorizeCall(callRecord.id)
     const originate = await originateOutboundCall({
       to: contact.phone,
       callerId: outboundCallerId,
@@ -84,6 +86,7 @@ export const initiateCall = async (contactId: number, campaignId: number, actorO
       providerCall: { id: originate.providerCallId, to: contact.phone, from: outboundCallerId, backendOriginate: originate.enabled, agentExtension },
     }
   } catch (err) {
+    await callingBillingService.releaseCallAuthorization(callRecord.id).catch(() => undefined)
     await prisma.call.update({ where: { id: callRecord.id }, data: { status: 'FAILED', endedAt: new Date() } }).catch(() => undefined)
     throw err
   }
@@ -122,6 +125,7 @@ export const initiateAdhocCall = async (phone: string, actorOrAgentId: Actor | n
   })
 
   try {
+    await callingBillingService.authorizeCall(callRecord.id)
     const originate = await originateOutboundCall({
       to: phone,
       callerId: outboundCallerId,
@@ -135,6 +139,7 @@ export const initiateAdhocCall = async (phone: string, actorOrAgentId: Actor | n
     logger.info(originate.enabled ? 'Asterisk AMI originate queued for ad-hoc call' : 'AMI disabled; ad-hoc provider placeholder created')
     return { callSid: originate.providerCallId, callId: updatedCall.id, contactId: contact.id, phone, providerCallId: originate.providerCallId, callerId: outboundCallerId, dynamicCallerIdUsed: Boolean(dynamicCallerId), backendOriginate: originate.enabled, agentExtension }
   } catch (err) {
+    await callingBillingService.releaseCallAuthorization(callRecord.id).catch(() => undefined)
     await prisma.call.update({ where: { id: callRecord.id }, data: { status: 'FAILED', endedAt: new Date() } }).catch(() => undefined)
     throw err
   }
@@ -180,6 +185,7 @@ export const hangupBackendOriginated = async (input: { callId?: number | string 
         status: computedDuration > 0 ? 'COMPLETED' : 'NO_ANSWER',
       },
     }).catch(() => undefined)
+    await callingBillingService.settleCallAuthorization(callRecord.id, computedDuration).catch(() => undefined)
   }
 
   logger.info('Backend-originated PTDT-Dialer hangup requested')

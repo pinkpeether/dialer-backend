@@ -2,6 +2,8 @@ import { Response, NextFunction } from 'express'
 import { AuthRequest } from '../middleware/auth'
 import { sendSuccess } from '../utils/response'
 import { commercialControlService } from '../services/commercialControl.service'
+import { callingBillingService } from '../services/callingBilling.service'
+import * as CommercialScope from '../services/commercialScope.service'
 import prisma from '../lib/prisma'
 
 const idParam = (value: string) => Number(value)
@@ -294,6 +296,58 @@ export const updateThresholds = async (req: AuthRequest, res: Response, next: Ne
       await commercialControlService.updateThresholds(idParam(req.params.accountId), req.body, req.user),
       'Billing thresholds updated',
     )
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export const getCallingSetup = async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    return sendSuccess(res, await callingBillingService.getPlatformSetup(), 'Calling billing setup fetched')
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export const updateCallingProvider = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    return sendSuccess(res, await callingBillingService.updateProviderWallet(req.body || {}), 'IllyVoIP provider wallet updated')
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export const saveCallingRate = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    return sendSuccess(res, await callingBillingService.saveRate(req.body || {}), 'Calling rate saved')
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export const grantCallingAllowance = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    return sendSuccess(res, await callingBillingService.grantAllowance(idParam(req.params.accountId), req.body || {}), 'Customer calling allowance allocated')
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export const authorizeCallingCall = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const callId = idParam(req.params.callId)
+    await CommercialScope.assertCallAccess(callId, req.user)
+    return sendSuccess(res, await callingBillingService.authorizeCall(callId), 'Outbound call authorized')
+  } catch (err) {
+    return next(err)
+  }
+}
+
+export const releaseCallingCall = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const callId = idParam(req.params.callId)
+    await CommercialScope.assertCallAccess(callId, req.user)
+    return sendSuccess(res, await callingBillingService.releaseCallAuthorization(callId), 'Outbound call authorization released')
   } catch (err) {
     return next(err)
   }
