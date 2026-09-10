@@ -444,12 +444,12 @@ export async function originateOutboundCall(input: AmiOriginateInput): Promise<A
   const callerId = sanitizeCallerId(input.callerId)
 
   const variableParts = [
-    'PTDT_CALL_ID=' + String(input.callId || ''),
-    'PTDT_CAMPAIGN_ID=' + String(input.campaignId || ''),
-    'PTDT_AGENT_ID=' + String(input.agentId || ''),
-    'PTDT_AGENT_EXTENSION=' + sanitizeExtension(input.agentExtension),
-    'PTDT_DYNAMIC_CALLER_ID=' + (input.dynamicCallerIdUsed ? '1' : '0'),
-    callerId ? 'PTDT_SELECTED_CALLER_ID=' + callerId : '',
+    '__PTDT_CALL_ID=' + String(input.callId || ''),
+    '__PTDT_CAMPAIGN_ID=' + String(input.campaignId || ''),
+    '__PTDT_AGENT_ID=' + String(input.agentId || ''),
+    '__PTDT_AGENT_EXTENSION=' + sanitizeExtension(input.agentExtension),
+    '__PTDT_DYNAMIC_CALLER_ID=' + (input.dynamicCallerIdUsed ? '1' : '0'),
+    callerId ? '__PTDT_SELECTED_CALLER_ID=' + callerId : '',
   ].filter(Boolean)
 
   const originateAction = amiCommand([
@@ -463,7 +463,7 @@ export async function originateOutboundCall(input: AmiOriginateInput): Promise<A
     'Timeout: ' + ORIGINATE_TIMEOUT_MS,
     'Async: true',
     'Account: ' + ORIGINATE_ACCOUNT,
-    variableParts.length ? 'Variable: ' + variableParts.join('|') : undefined,
+    ...variableParts.map(variable => 'Variable: ' + variable),
   ])
 
   const response = await sendAmi([loginAction(), originateAction])
