@@ -55,13 +55,8 @@ async function providerCapacity() {
 
 export const callingBillingService = {
   async getPlatformSetup() {
-    const [{ provider, outstanding, allocatable }, rates] = await Promise.all([
-      providerCapacity(),
-      (async () => {
-        await ensureCallingBillingDefaults()
-        return prisma.commercialCallingRate.findMany({ orderBy: { destinationCode: 'asc' } })
-      })(),
-    ])
+    const { provider, outstanding, allocatable } = await providerCapacity()
+    const rates = await prisma.commercialCallingRate.findMany({ orderBy: { destinationCode: 'asc' } })
     return { provider, outstandingCustomerCredit: outstanding, allocatableCustomerCredit: allocatable, rates }
   },
 
@@ -143,6 +138,9 @@ export const callingBillingService = {
     const existing = await prisma.commercialCallAuthorization.findUnique({ where: { callId } })
     if (existing) return existing
 
+    const provider = await prisma.commercialProviderWallet.findUnique({ where: { provider: PROVIDER } })
+    if (!provider?.enforcementEnabled) return null
+
     const call = await prisma.call.findUnique({
       where: { id: callId },
       include: { campaign: { include: { commercialAccount: { include: { wallet: true } } } } },
@@ -151,8 +149,6 @@ export const callingBillingService = {
     const account = call.campaign.commercialAccount
     if (!account?.wallet) return null
 
-    const provider = await ensureCallingBillingDefaults()
-    if (!provider.enforcementEnabled) return null
     if (account.status !== 'ACTIVE') throw new AppError('Commercial account is not active for outbound calling.', 403)
     if (account.wallet.currency !== PROVIDER_CURRENCY) throw new AppError('Outbound calling requires an EUR commercial wallet while IllyVoIP is the carrier.', 409)
     if (amount(provider.availableBalance) <= amount(provider.reserveBalance)) throw new AppError('IllyVoIP provider reserve reached. Outbound calling is paused until the provider wallet is topped up.', 402)

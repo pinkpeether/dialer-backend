@@ -92,6 +92,18 @@ const actionId = () => 'ami_' + Date.now() + '_' + Math.random().toString(36).sl
 const replaceToken = (value: string, token: string, replacement: string) => value.split(token).join(replacement)
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
+const amiErrorMessage = (buffer: string) => {
+  const errorBlock = buffer
+    .split(/\r?\n\r?\n/)
+    .find(block => block.includes('Response: Error'))
+  const message = errorBlock
+    ?.split(/\r?\n/)
+    .find(line => line.startsWith('Message:'))
+    ?.replace(/^Message:\s*/, '')
+    .trim()
+  return message || 'Asterisk AMI originate failed'
+}
+
 const renderTemplate = (template: string, input: AmiOriginateInput) => {
   let output = template
   output = replaceToken(output, '{to}', sanitizeDialString(input.to))
@@ -105,10 +117,10 @@ const renderTemplate = (template: string, input: AmiOriginateInput) => {
 }
 
 function resolveOriginate(input: AmiOriginateInput) {
-  const to = sanitizeDialString(input.to)
+  const agentExtension = sanitizeExtension(input.agentExtension)
+  const to = agentExtension ? digitsOnly(input.to) : sanitizeDialString(input.to)
   if (!to) throw new AppError('Destination phone number is invalid for AMI originate', 400)
 
-  const agentExtension = sanitizeExtension(input.agentExtension)
   if (agentExtension) {
     return {
       channel: renderTemplate(AGENT_CHANNEL_TEMPLATE, input),
@@ -174,7 +186,7 @@ function sendAmi(actions: string[]): Promise<string> {
         socket.end(logoffAction())
 
         if (buffer.includes('Response: Error')) {
-          reject(new AppError(buffer.split('\r\n').find(line => line.startsWith('Message:')) || 'Asterisk AMI originate failed', 502))
+          reject(new AppError(amiErrorMessage(buffer), 502))
         } else {
           resolve(buffer)
         }
@@ -219,7 +231,7 @@ function sendAmiUntil(actions: string[], done: (buffer: string) => boolean, time
         settled = true
         clearTimeout(timer)
         socket.end(logoffAction())
-        reject(new AppError(buffer.split('\r\n').find(line => line.startsWith('Message:')) || 'Asterisk AMI request failed', 502))
+        reject(new AppError(amiErrorMessage(buffer), 502))
         return
       }
 
