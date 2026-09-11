@@ -26,10 +26,10 @@ router.post('/preview/:campaignId/next', authorize('AGENT', 'ADMIN', 'SUPERVISOR
 router.post('/preview/:campaignId/:contactId/release', authorize('AGENT', 'ADMIN', 'SUPERVISOR'), DialerController.releasePreviewContact)
 router.post('/preview/:campaignId/:contactId/call', authorize('AGENT', 'ADMIN', 'SUPERVISOR'), DialerController.callPreviewContact)
 
-router.post('/call/manual', DialerController.makeManualCall)
-router.post('/call/adhoc', DialerController.makeAdhocCall)
-router.post('/call/dtmf', DialerController.sendDTMF)
-router.post('/call/hangup', DialerController.hangupCall)
+router.post('/call/manual', authorize('SUPER_ADMIN', 'ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR', 'AGENT'), DialerController.makeManualCall)
+router.post('/call/adhoc', authorize('SUPER_ADMIN', 'ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR', 'AGENT'), DialerController.makeAdhocCall)
+router.post('/call/dtmf', authorize('SUPER_ADMIN', 'ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR', 'AGENT'), DialerController.sendDTMF)
+router.post('/call/hangup', authorize('SUPER_ADMIN', 'ADMIN', 'CUSTOMER_ADMIN', 'SUPERVISOR', 'AGENT'), DialerController.hangupCall)
 
 
 export default router

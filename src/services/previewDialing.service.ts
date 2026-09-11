@@ -3,6 +3,8 @@ import { AppError } from '../middleware/errorHandler'
 import { normalizeDialingMode, DIALING_MODES } from '../constants/dialingModes'
 import * as ProviderCallService from './providerCall.service'
 
+type Actor = { id: number; email?: string; role?: string }
+
 const previewEligibleWhere = (campaignId: number) => {
   const now = new Date()
   return {
@@ -52,7 +54,7 @@ export const releasePreviewContact = async (contactId: number, campaignId: numbe
   })
 }
 
-export const callPreviewContact = async (contactId: number, campaignId: number, agentId: number) => {
+export const callPreviewContact = async (contactId: number, campaignId: number, actorOrAgentId: Actor | number) => {
   const contact = await prisma.contact.findFirst({ where: { id: contactId, campaignId } })
   if (!contact) throw new AppError('Preview contact not found', 404)
 
@@ -60,5 +62,5 @@ export const callPreviewContact = async (contactId: number, campaignId: number, 
     throw new AppError(`Contact is not callable from preview state: ${contact.status}`, 400)
   }
 
-  return ProviderCallService.initiateCall(contactId, campaignId, agentId)
+  return ProviderCallService.initiateCall(contactId, campaignId, actorOrAgentId, { requireSipRegistration: true })
 }

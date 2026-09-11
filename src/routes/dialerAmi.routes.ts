@@ -11,7 +11,7 @@ router.post('/call/backend-adhoc', authorize('SUPER_ADMIN', 'ADMIN', 'CUSTOMER_A
     const { phone, note, callerIdId, agentExtension } = req.body
     if (!phone) return sendError(res, 'phone number required', 400)
     if (!agentExtension) return sendError(res, 'agentExtension required for backend-originated Dynamic Caller ID calls', 400)
-    const result = await ProviderCallService.initiateAdhocCall(String(phone).trim(), req.user!, note ? String(note) : undefined, { callerIdId, agentExtension })
+    const result = await ProviderCallService.initiateAdhocCall(String(phone).trim(), req.user!, note ? String(note) : undefined, { callerIdId, agentExtension, requireSipRegistration: true })
     return sendSuccess(res, result, 'Backend-originated Dynamic Caller ID call initiated')
   } catch (err) { return next(err) }
 })

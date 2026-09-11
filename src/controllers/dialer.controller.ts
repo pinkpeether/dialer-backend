@@ -65,7 +65,7 @@ export const callPreviewContact = async (req: AuthRequest, res: Response, next: 
     const result = await PreviewDialingService.callPreviewContact(
       Number(req.params.contactId),
       Number(req.params.campaignId),
-      req.user!.id,
+      req.user!,
     )
     return sendSuccess(res, result, 'Preview call initiated')
   } catch (err) { return next(err) }
@@ -75,7 +75,7 @@ export const makeManualCall = async (req: AuthRequest, res: Response, next: Next
   try {
     const { contactId, campaignId, callerIdId } = req.body
     if (!contactId || !campaignId) return sendError(res, 'contactId and campaignId required', 400)
-    const result = await ProviderCallService.initiateCall(Number(contactId), Number(campaignId), req.user!, { callerIdId })
+    const result = await ProviderCallService.initiateCall(Number(contactId), Number(campaignId), req.user!, { callerIdId, requireSipRegistration: true })
     return sendSuccess(res, result, 'Call initiated')
   } catch (err) { return next(err) }
 }
@@ -84,7 +84,7 @@ export const makeAdhocCall = async (req: AuthRequest, res: Response, next: NextF
   try {
     const { phone, note, callerIdId } = req.body
     if (!phone) return sendError(res, 'phone number required', 400)
-    const result = await ProviderCallService.initiateAdhocCall(String(phone).trim(), req.user!, note ? String(note) : undefined, { callerIdId })
+    const result = await ProviderCallService.initiateAdhocCall(String(phone).trim(), req.user!, note ? String(note) : undefined, { callerIdId, requireSipRegistration: true })
     return sendSuccess(res, result, 'Ad-hoc call initiated')
   } catch (err) { return next(err) }
 }

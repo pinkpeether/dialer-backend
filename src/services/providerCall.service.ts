@@ -9,9 +9,51 @@ import { callingBillingService } from './callingBilling.service'
 const DEFAULT_CALLER_ID = process.env.DEFAULT_OUTBOUND_CALLER_ID || ''
 
 type Actor = { id: number; email?: string; role?: string }
-type CallOptions = { callerIdId?: number | string | null; agentExtension?: string | null }
+type CallOptions = {
+  callerIdId?: number | string | null
+  agentExtension?: string | null
+  requireSipRegistration?: boolean
+}
 
 const sanitizeAgentExtension = (value?: string | null) => value ? value.replace(/[^0-9A-Za-z_.-]/g, '').trim() : ''
+
+const ACTIVE_SIP_STATUSES = new Set(['registered', 'in_call', 'calling', 'incoming'])
+const SIP_PRESENCE_MAX_AGE_SECONDS = Math.max(30, Number(process.env.SIP_PRESENCE_MAX_AGE_SECONDS || 90))
+
+const assertSipRegisteredForOutbound = async (actor?: Actor) => {
+  if (!actor?.id) throw new AppError('SIP registration is required before placing outbound calls.', 409)
+
+  const presence = await prisma.sipPresence.findUnique({
+    where: { userId: actor.id },
+    select: {
+      enabled: true,
+      registered: true,
+      status: true,
+      username: true,
+      domain: true,
+      webSocketServer: true,
+      lastSeenAt: true,
+    },
+  })
+
+  const status = (presence?.status || '').toLowerCase()
+  const lastSeenAgeSeconds = presence?.lastSeenAt
+    ? (Date.now() - presence.lastSeenAt.getTime()) / 1000
+    : Number.POSITIVE_INFINITY
+  const isRegistered = Boolean(
+    presence?.enabled
+    && presence.registered
+    && ACTIVE_SIP_STATUSES.has(status)
+    && presence.username
+    && presence.domain
+    && presence.webSocketServer
+    && lastSeenAgeSeconds <= SIP_PRESENCE_MAX_AGE_SECONDS
+  )
+
+  if (!isRegistered) {
+    throw new AppError('SIP registration is required before placing outbound calls. Open SIP Settings and register first.', 409)
+  }
+}
 
 const getOrCreateAdhocCampaign = async (actor?: Actor) => {
   const commercialAccountId = actor ? await Scope.primaryAccountIdForActor(actor) : null
@@ -38,6 +80,8 @@ const getOrCreateAdhocCampaign = async (actor?: Actor) => {
 export const initiateCall = async (contactId: number, campaignId: number, actorOrAgentId?: Actor | number, options: CallOptions = {}) => {
   const actor = typeof actorOrAgentId === 'object' ? actorOrAgentId : undefined
   const agentId = typeof actorOrAgentId === 'number' ? actorOrAgentId : actorOrAgentId?.id
+  if (options.requireSipRegistration) await assertSipRegisteredForOutbound(actor)
+
   const contact = await prisma.contact.findUnique({ where: { id: contactId } })
   if (!contact) throw new AppError('Contact not found', 404)
 
@@ -95,6 +139,8 @@ export const initiateCall = async (contactId: number, campaignId: number, actorO
 export const initiateAdhocCall = async (phone: string, actorOrAgentId: Actor | number, note?: string, options: CallOptions = {}) => {
   const actor = typeof actorOrAgentId === 'object' ? actorOrAgentId : undefined
   const agentId = typeof actorOrAgentId === 'number' ? actorOrAgentId : actorOrAgentId.id
+  if (options.requireSipRegistration) await assertSipRegisteredForOutbound(actor)
+
   const campaign = await getOrCreateAdhocCampaign(actor)
   const contact = await prisma.contact.create({
     data: {
