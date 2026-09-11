@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
 import { sendError } from '../utils/response'
+import prisma from '../lib/prisma'
+import { getJwtSecret } from '../services/auth.service'
 
 export type AuthUserRole =
   | 'SUPER_ADMIN'
@@ -36,15 +38,24 @@ export const authenticate = (
   }
 
   const token = authHeader.split(' ')[1]
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as {
+  void (async () => {
+    try {
+      const decoded = jwt.verify(token, getJwtSecret()) as {
       id: number; email: string; role: string
+      }
+      const user = await prisma.user.findUnique({
+        where: { id: decoded.id },
+        select: { id: true, email: true, role: true, isActive: true },
+      })
+      if (!user || !user.isActive) {
+        return sendError(res, 'Unauthorized — User session is no longer active', 401)
+      }
+      req.user = { id: user.id, email: user.email, role: user.role }
+      return next()
+    } catch {
+      return sendError(res, 'Unauthorized — Invalid token', 401)
     }
-    req.user = decoded
-    return next()
-  } catch {
-    return sendError(res, 'Unauthorized — Invalid token', 401)
-  }
+  })()
 }
 
 export const authorize = (...roles: string[]) => {

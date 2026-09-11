@@ -3,14 +3,20 @@ import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 
+export const getJwtSecret = () => {
+  const secret = process.env.JWT_SECRET
+  if (!secret) throw new AppError('JWT secret is not configured', 500)
+  return secret
+}
+
 export const generateToken = (payload: {
   id: number
   email: string
   role: string
 }) => {
-  return jwt.sign(payload, process.env.JWT_SECRET!, {
-  expiresIn: process.env.JWT_EXPIRES_IN as any || '30d',
-})
+  return jwt.sign(payload, getJwtSecret(), {
+    expiresIn: process.env.JWT_EXPIRES_IN as any || '30d',
+  })
 }
 
 export const registerUser = async (data: {
@@ -40,7 +46,7 @@ export const registerUser = async (data: {
       name: data.name,
       email: data.email,
       passwordHash: hashedPassword,
-      role: data.role || 'AGENT',
+      role: 'AGENT',
       extension: data.extension,
       phone: data.phone,
     },

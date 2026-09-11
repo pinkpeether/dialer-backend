@@ -68,9 +68,9 @@ const ensureCanAccessCall = (
   )
 }
 
-const emitDashboardEvent = (event: string, payload: unknown) => {
+const emitDashboardEvent = (event: string, payload: unknown, accountId?: number | null) => {
   try {
-    emitToDashboard(event, payload)
+    emitToDashboard(event, payload, accountId)
   } catch {
     // Socket server may not be initialized in scripts/tests.
   }
@@ -82,11 +82,13 @@ const toDashboardCallPayload = (call: {
   remoteNumber?: string | null
   duration?: number | null
   status?: string | null
+  campaign?: { commercialAccountId?: number | null } | null
   contact?: { name?: string | null; phone?: string | null } | null
   agent?: { name?: string | null } | null
 }) => ({
   callId: call.id,
   agentId: call.agentId ?? 0,
+  commercialAccountId: call.campaign?.commercialAccountId ?? null,
   agentName: call.agent?.name || 'Unknown agent',
   phone: call.remoteNumber || call.contact?.phone || 'Unknown',
   name: call.contact?.name || call.remoteNumber || 'Unknown',
@@ -155,11 +157,11 @@ export const createSipCallLog = async (input: SipCallLogInput, user?: CallAccess
     include: {
       contact: true,
       agent: { select: { id: true, name: true, agentCode: true } },
-      campaign: { select: { id: true, name: true } },
+      campaign: { select: { id: true, name: true, commercialAccountId: true } },
     },
   })
 
-  emitDashboardEvent('call:started', toDashboardCallPayload(call))
+  emitDashboardEvent('call:started', toDashboardCallPayload(call), call.campaign?.commercialAccountId ?? null)
 
   return {
     ...call,
@@ -295,7 +297,7 @@ export const updateCallDisposition = async (
       include: {
         contact: true,
         agent: { select: { id: true, name: true, agentCode: true } },
-        campaign: { select: { id: true, name: true } },
+        campaign: { select: { id: true, name: true, commercialAccountId: true } },
       },
     })
 
@@ -377,7 +379,7 @@ export const updateCallDisposition = async (
     metadata: { disposition, callbackAt },
   })
 
-  emitDashboardEvent('call:ended', toDashboardCallPayload(call))
+  emitDashboardEvent('call:ended', toDashboardCallPayload(call), call.campaign?.commercialAccountId ?? null)
   return call
 }
 
@@ -420,13 +422,13 @@ export const markCallEnded = async (
     include: {
       contact: true,
       agent: { select: { id: true, name: true, agentCode: true } },
-      campaign: { select: { id: true, name: true } },
+      campaign: { select: { id: true, name: true, commercialAccountId: true } },
     },
   })
 
   await callingBillingService.settleCallAuthorization(id, duration).catch(() => undefined)
 
-  emitDashboardEvent('call:ended', toDashboardCallPayload(call))
+  emitDashboardEvent('call:ended', toDashboardCallPayload(call), call.campaign?.commercialAccountId ?? null)
   return call
 }
 
