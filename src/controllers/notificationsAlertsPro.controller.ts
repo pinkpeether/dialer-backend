@@ -5,7 +5,8 @@ function getUser(req: Request) {
   const requestUser = (req as any).user || {}
   return {
     id: Number(requestUser.id || requestUser.userId || 0),
-    role: String(requestUser.role || req.query.role || '').toUpperCase(),
+    email: requestUser.email ? String(requestUser.email) : undefined,
+    role: String(requestUser.role || '').toUpperCase(),
   }
 }
 
@@ -47,6 +48,7 @@ export async function listAlerts(req: Request, res: Response) {
     const alerts = await notificationsAlertsProService.listAlerts({
       userId: user.id,
       role: user.role,
+      actor: user,
       onlyUnread: String(req.query.onlyUnread || '') === 'true',
       severity: req.query.severity as string | undefined,
       type: req.query.type as string | undefined,
@@ -61,7 +63,7 @@ export async function listAlerts(req: Request, res: Response) {
 export async function getSummary(req: Request, res: Response) {
   try {
     const user = getUser(req)
-    const summary = await notificationsAlertsProService.getAlertSummary({ userId: user.id, role: user.role })
+    const summary = await notificationsAlertsProService.getAlertSummary({ userId: user.id, role: user.role, actor: user })
     return sendSuccess(res, summary, 'Alert summary loaded')
   } catch (error) {
     return sendError(res, error)
@@ -70,7 +72,8 @@ export async function getSummary(req: Request, res: Response) {
 
 export async function createAlert(req: Request, res: Response) {
   try {
-    const alert = await notificationsAlertsProService.createManualAlert(req.body || {})
+    const user = getUser(req)
+    const alert = await notificationsAlertsProService.createManualAlert(req.body || {}, user)
     return sendSuccess(res, alert, 'Alert created')
   } catch (error) {
     return sendError(res, error)
@@ -80,7 +83,7 @@ export async function createAlert(req: Request, res: Response) {
 export async function acknowledgeAlert(req: Request, res: Response) {
   try {
     const user = getUser(req)
-    const alert = await notificationsAlertsProService.acknowledgeAlert(req.params.alertId, user.id || 0)
+    const alert = await notificationsAlertsProService.acknowledgeAlert(req.params.alertId, user.id || 0, user)
     return sendSuccess(res, alert, 'Alert acknowledged')
   } catch (error) {
     return sendError(res, error)
@@ -90,7 +93,7 @@ export async function acknowledgeAlert(req: Request, res: Response) {
 export async function acknowledgeAll(req: Request, res: Response) {
   try {
     const user = getUser(req)
-    const result = await notificationsAlertsProService.acknowledgeAllAlerts(user.id || 0, user.role)
+    const result = await notificationsAlertsProService.acknowledgeAllAlerts(user.id || 0, user.role, user)
     return sendSuccess(res, result, 'All visible alerts acknowledged')
   } catch (error) {
     return sendError(res, error)
@@ -99,7 +102,8 @@ export async function acknowledgeAll(req: Request, res: Response) {
 
 export async function runSweep(req: Request, res: Response) {
   try {
-    const result = await notificationsAlertsProService.runAlertSweep()
+    const user = getUser(req)
+    const result = await notificationsAlertsProService.runAlertSweep(user)
     return sendSuccess(res, result, 'Alert sweep completed')
   } catch (error) {
     return sendError(res, error)
@@ -108,7 +112,8 @@ export async function runSweep(req: Request, res: Response) {
 
 export async function createAngryCustomerAlert(req: Request, res: Response) {
   try {
-    const alert = await notificationsAlertsProService.createAngryCustomerAlert(req.body || {})
+    const user = getUser(req)
+    const alert = await notificationsAlertsProService.createAngryCustomerAlert(req.body || {}, user)
     return sendSuccess(res, alert, 'Angry customer alert created')
   } catch (error) {
     return sendError(res, error)
@@ -117,7 +122,8 @@ export async function createAngryCustomerAlert(req: Request, res: Response) {
 
 export async function createShiftReminder(req: Request, res: Response) {
   try {
-    const alert = await notificationsAlertsProService.createShiftReminder(req.body || {})
+    const user = getUser(req)
+    const alert = await notificationsAlertsProService.createShiftReminder(req.body || {}, user)
     return sendSuccess(res, alert, 'Shift/break reminder created')
   } catch (error) {
     return sendError(res, error)

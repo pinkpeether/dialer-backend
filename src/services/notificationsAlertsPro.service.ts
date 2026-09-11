@@ -1,4 +1,5 @@
 import prisma from '../lib/prisma'
+import * as Scope from './commercialScope.service'
 
 type AlertSeverity = 'INFO' | 'SUCCESS' | 'WARNING' | 'CRITICAL'
 type AlertType =
@@ -21,6 +22,7 @@ export type NotificationAlert = {
   agentId?: number | null
   campaignId?: number | null
   callId?: number | null
+  commercialAccountId?: number | null
   soundKey?: string | null
   actionUrl?: string | null
   createdAt: string
@@ -90,6 +92,72 @@ function normalizeAudience(audience?: string[]): NotificationAlert['audience'] {
   return cleaned.length ? cleaned : ['ADMIN', 'SUPERVISOR']
 }
 
+const accountIdsForActor = async (actor?: Scope.ScopeActor) => {
+  if (Scope.isPlatformActor(actor)) return null
+  return Scope.getActorAccountIds(actor)
+}
+
+const canSeeAlert = (alert: NotificationAlert, actorAccountIds: number[] | null, userId?: number, role?: string) => {
+  const normalizedRole = String(role || '').toUpperCase()
+  if (normalizedRole && !alert.audience.includes(normalizedRole as any)) return false
+  if (actorAccountIds === null) return true
+  if (alert.commercialAccountId && actorAccountIds.includes(alert.commercialAccountId)) return true
+  if (userId && alert.agentId === userId) return true
+  return false
+}
+
+const resolveAlertAccountId = async (
+  payload: { commercialAccountId?: number | null; campaignId?: number | null; callId?: number | null; agentId?: number | null },
+  actor?: Scope.ScopeActor,
+) => {
+  if (Scope.isPlatformActor(actor)) {
+    if (payload.commercialAccountId) return payload.commercialAccountId
+    if (payload.callId) {
+      const call = await prisma.call.findUnique({
+        where: { id: payload.callId },
+        select: { campaign: { select: { commercialAccountId: true } } },
+      })
+      if (call?.campaign?.commercialAccountId) return call.campaign.commercialAccountId
+    }
+    if (payload.campaignId) {
+      const campaign = await prisma.campaign.findUnique({
+        where: { id: payload.campaignId },
+        select: { commercialAccountId: true },
+      })
+      if (campaign?.commercialAccountId) return campaign.commercialAccountId
+    }
+    if (payload.agentId) {
+      const membership = await prisma.commercialAccountMembership.findFirst({
+        where: { userId: payload.agentId, status: 'ACTIVE' },
+        select: { accountId: true },
+        orderBy: { createdAt: 'asc' },
+      })
+      if (membership?.accountId) return membership.accountId
+    }
+    return null
+  }
+
+  if (payload.callId) {
+    await Scope.assertCallAccess(payload.callId, actor)
+    const call = await prisma.call.findUnique({
+      where: { id: payload.callId },
+      select: { campaign: { select: { commercialAccountId: true } } },
+    })
+    return call?.campaign?.commercialAccountId ?? await Scope.primaryAccountIdForActor(actor)
+  }
+
+  if (payload.campaignId) {
+    await Scope.assertCampaignAccess(payload.campaignId, actor)
+    const campaign = await prisma.campaign.findUnique({
+      where: { id: payload.campaignId },
+      select: { commercialAccountId: true },
+    })
+    return campaign?.commercialAccountId ?? await Scope.primaryAccountIdForActor(actor)
+  }
+
+  return Scope.primaryAccountIdForActor(actor)
+}
+
 function pushAlert(input: Omit<NotificationAlert, 'id' | 'createdAt' | 'acknowledgedBy'>) {
   const alert: NotificationAlert = {
     ...input,
@@ -133,11 +201,13 @@ export async function createManualAlert(payload: {
   agentId?: number | null
   campaignId?: number | null
   callId?: number | null
+  commercialAccountId?: number | null
   soundKey?: string | null
   actionUrl?: string | null
   expiresAt?: string | null
   metadata?: Record<string, unknown>
-}) {
+}, actor?: Scope.ScopeActor) {
+  const commercialAccountId = await resolveAlertAccountId(payload, actor)
   return pushAlert({
     type: payload.type || 'SYSTEM_NOTICE',
     severity: payload.severity || 'INFO',
@@ -147,6 +217,7 @@ export async function createManualAlert(payload: {
     agentId: payload.agentId ?? null,
     campaignId: payload.campaignId ?? null,
     callId: payload.callId ?? null,
+    commercialAccountId,
     soundKey: payload.soundKey ?? null,
     actionUrl: payload.actionUrl ?? null,
     expiresAt: payload.expiresAt ?? null,
@@ -157,6 +228,7 @@ export async function createManualAlert(payload: {
 export async function listAlerts(params: {
   userId?: number
   role?: string
+  actor?: Scope.ScopeActor
   onlyUnread?: boolean
   severity?: string
   type?: string
@@ -165,10 +237,11 @@ export async function listAlerts(params: {
   const limit = Math.min(Math.max(Number(params.limit || 100), 1), 200)
   const role = String(params.role || '').toUpperCase()
   const userId = Number(params.userId || 0)
+  const actorAccountIds = await accountIdsForActor(params.actor)
 
   return alerts
     .filter((alert) => {
-      if (role && !alert.audience.includes(role as any)) return false
+      if (!canSeeAlert(alert, actorAccountIds, userId, role)) return false
       if (params.onlyUnread && userId && alert.acknowledgedBy.includes(userId)) return false
       if (params.severity && alert.severity !== params.severity) return false
       if (params.type && alert.type !== params.type) return false
@@ -178,9 +251,15 @@ export async function listAlerts(params: {
     .slice(0, limit)
 }
 
-export async function acknowledgeAlert(alertId: string, userId: number) {
+export async function acknowledgeAlert(alertId: string, userId: number, actor?: Scope.ScopeActor) {
   const alert = alerts.find((item) => item.id === alertId)
   if (!alert) {
+    const error = new Error('Alert not found')
+    ;(error as any).statusCode = 404
+    throw error
+  }
+  const actorAccountIds = await accountIdsForActor(actor)
+  if (!canSeeAlert(alert, actorAccountIds, userId, actor?.role)) {
     const error = new Error('Alert not found')
     ;(error as any).statusCode = 404
     throw error
@@ -189,21 +268,24 @@ export async function acknowledgeAlert(alertId: string, userId: number) {
   return alert
 }
 
-export async function acknowledgeAllAlerts(userId: number, role?: string) {
-  const visible = await listAlerts({ userId, role, limit: 500 })
+export async function acknowledgeAllAlerts(userId: number, role?: string, actor?: Scope.ScopeActor) {
+  const visible = await listAlerts({ userId, role, actor, limit: 500 })
   visible.forEach((alert) => {
     if (!alert.acknowledgedBy.includes(userId)) alert.acknowledgedBy.push(userId)
   })
   return { acknowledged: visible.length }
 }
 
-export async function evaluateLowContactWarnings() {
+export async function evaluateLowContactWarnings(actor?: Scope.ScopeActor) {
   const threshold = DEFAULT_PREFERENCES.lowContactThreshold
+  const campaignScope = await Scope.campaignScopeWhere(actor)
   const campaigns = await prisma.campaign.findMany({
+    where: campaignScope,
     select: {
       id: true,
       name: true,
       status: true,
+      commercialAccountId: true,
       contacts: {
         where: {
           status: {
@@ -230,6 +312,7 @@ export async function evaluateLowContactWarnings() {
             message: `${campaign.name || `Campaign ${campaign.id}`} has ${remaining} callable contacts remaining.`,
             audience: ['ADMIN', 'SUPERVISOR'],
             campaignId: campaign.id,
+            commercialAccountId: campaign.commercialAccountId,
             soundKey: remaining === 0 ? DEFAULT_PREFERENCES.sounds.critical : DEFAULT_PREFERENCES.sounds.warning,
             actionUrl: `/campaigns/${campaign.id}`,
             metadata: { remaining, threshold },
@@ -241,9 +324,11 @@ export async function evaluateLowContactWarnings() {
   return { created, checked: campaigns.length }
 }
 
-export async function evaluateCampaignCompleteAlerts() {
+export async function evaluateCampaignCompleteAlerts(actor?: Scope.ScopeActor) {
+  const campaignScope = await Scope.campaignScopeWhere(actor)
   const campaigns = await prisma.campaign.findMany({
-    select: { id: true, name: true, status: true, updatedAt: true },
+    where: campaignScope,
+    select: { id: true, name: true, status: true, updatedAt: true, commercialAccountId: true },
     take: 100,
   })
 
@@ -260,6 +345,7 @@ export async function evaluateCampaignCompleteAlerts() {
           message: `${campaign.name || `Campaign ${campaign.id}`} is complete.`,
           audience: ['ADMIN', 'SUPERVISOR'],
           campaignId: campaign.id,
+          commercialAccountId: campaign.commercialAccountId,
           soundKey: DEFAULT_PREFERENCES.sounds.success,
           actionUrl: `/campaigns/${campaign.id}`,
           metadata: { status: campaign.status, updatedAt: campaign.updatedAt },
@@ -276,7 +362,8 @@ export async function createAngryCustomerAlert(payload: {
   sentimentScore?: number
   reason?: string
   transcriptSnippet?: string
-}) {
+}, actor?: Scope.ScopeActor) {
+  const commercialAccountId = await resolveAlertAccountId({ callId: payload.callId, agentId: payload.agentId }, actor)
   return pushAlert({
     type: 'ANGRY_CUSTOMER',
     severity: 'CRITICAL',
@@ -285,6 +372,7 @@ export async function createAngryCustomerAlert(payload: {
     audience: ['ADMIN', 'SUPERVISOR'],
     agentId: payload.agentId || null,
     callId: payload.callId || null,
+    commercialAccountId,
     soundKey: DEFAULT_PREFERENCES.sounds.critical,
     actionUrl: payload.callId ? `/call-intelligence?callId=${payload.callId}` : '/live-ai-console',
     metadata: {
@@ -300,7 +388,8 @@ export async function createShiftReminder(payload: {
   startsAt?: string
   endsAt?: string
   reminderType?: 'SHIFT_START' | 'SHIFT_END' | 'BREAK_DUE' | 'BREAK_OVER'
-}) {
+}, actor?: Scope.ScopeActor) {
+  const commercialAccountId = await resolveAlertAccountId({ agentId: payload.agentId }, actor)
   const reminderType = payload.reminderType || 'SHIFT_START'
   const titleMap: Record<string, string> = {
     SHIFT_START: 'Shift reminder',
@@ -315,15 +404,16 @@ export async function createShiftReminder(payload: {
     message: `${payload.agentName || `Agent ${payload.agentId}`}: ${titleMap[reminderType].toLowerCase()}.`,
     audience: ['ADMIN', 'SUPERVISOR', 'AGENT'],
     agentId: payload.agentId,
+    commercialAccountId,
     soundKey: DEFAULT_PREFERENCES.sounds.warning,
     actionUrl: '/agent-management-pro',
     metadata: payload,
   })
 }
 
-export async function runAlertSweep() {
-  const lowContacts = await evaluateLowContactWarnings()
-  const completedCampaigns = await evaluateCampaignCompleteAlerts()
+export async function runAlertSweep(actor?: Scope.ScopeActor) {
+  const lowContacts = await evaluateLowContactWarnings(actor)
+  const completedCampaigns = await evaluateCampaignCompleteAlerts(actor)
   return {
     ranAt: nowIso(),
     lowContacts,
@@ -332,8 +422,8 @@ export async function runAlertSweep() {
   }
 }
 
-export async function getAlertSummary(params: { userId?: number; role?: string }) {
-  const visible = await listAlerts({ userId: params.userId, role: params.role, limit: 500 })
+export async function getAlertSummary(params: { userId?: number; role?: string; actor?: Scope.ScopeActor }) {
+  const visible = await listAlerts({ userId: params.userId, role: params.role, actor: params.actor, limit: 500 })
   const unread = visible.filter((alert) => params.userId && !alert.acknowledgedBy.includes(params.userId)).length
   const bySeverity = visible.reduce<Record<string, number>>((acc, alert) => {
     acc[alert.severity] = (acc[alert.severity] || 0) + 1
