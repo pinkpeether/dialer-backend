@@ -76,6 +76,19 @@ const emitDashboardEvent = (event: string, payload: unknown, accountId?: number 
   }
 }
 
+const isBackendOriginatedCall = (call: { source?: string | null; providerCallId?: string | null }) =>
+  String(call.source || '').toLowerCase().includes('sip_trunk') ||
+  String(call.providerCallId || '').startsWith('ami_') ||
+  String(call.providerCallId || '').startsWith('pending_ami_')
+
+const settleOrReleaseBilling = async (callId: number, duration: number) => {
+  if (duration > 0) {
+    await callingBillingService.settleCallAuthorization(callId, duration).catch(() => undefined)
+    return
+  }
+  await callingBillingService.releaseCallAuthorization(callId).catch(() => undefined)
+}
+
 const toDashboardCallPayload = (call: {
   id: number
   agentId: number | null
@@ -272,17 +285,14 @@ export const updateCallDisposition = async (
 
   const callbackAgentId = existing.agentId ?? user?.id
   const hasRecordedEnd = Boolean(existing.endedAt)
-  const isBackendOriginatedCall =
-    String(existing.source || '').toLowerCase().includes('sip_trunk') ||
-    String(existing.providerCallId || '').startsWith('ami_') ||
-    String(existing.providerCallId || '').startsWith('pending_ami_')
+  const isBackendOriginated = isBackendOriginatedCall(existing)
 
   const endedAt = existing.endedAt ?? new Date()
   const durationStart = existing.connectedAt ?? existing.startedAt
   const computedDuration = Math.max(0, Math.round((endedAt.getTime() - durationStart.getTime()) / 1000))
   const duration = existing.duration && existing.duration > 0
     ? existing.duration
-    : (!hasRecordedEnd && isBackendOriginatedCall ? 0 : computedDuration)
+    : (!hasRecordedEnd && isBackendOriginated ? 0 : computedDuration)
 
   const call = await prisma.$transaction(async (tx) => {
     const call = await tx.call.update({
@@ -371,6 +381,8 @@ export const updateCallDisposition = async (
     return call
   })
 
+  await settleOrReleaseBilling(id, duration)
+
   await logAuditEvent({
     actor: user,
     action: AUDIT_ACTIONS.CALL_DISPOSITION_UPDATE,
@@ -400,6 +412,8 @@ export const markCallEnded = async (
       connectedAt: true,
       endedAt: true,
       duration: true,
+      source: true,
+      providerCallId: true,
     },
   })
 
@@ -410,12 +424,16 @@ export const markCallEnded = async (
   const endedAt = existing.endedAt ?? endedAtInput ?? new Date()
   const durationStart = existing.connectedAt ?? existing.startedAt
   const computedDuration = Math.max(0, Math.round((endedAt.getTime() - durationStart.getTime()) / 1000))
-  const duration = existing.duration && existing.duration > 0 ? existing.duration : computedDuration
+  const duration = existing.duration && existing.duration > 0
+    ? existing.duration
+    : isBackendOriginatedCall(existing)
+      ? 0
+      : computedDuration
 
   const call = await prisma.call.update({
     where: { id },
     data: {
-      status: 'COMPLETED',
+      status: duration > 0 || !isBackendOriginatedCall(existing) ? 'COMPLETED' : 'NO_ANSWER',
       endedAt,
       duration,
     },
@@ -426,7 +444,7 @@ export const markCallEnded = async (
     },
   })
 
-  await callingBillingService.settleCallAuthorization(id, duration).catch(() => undefined)
+  await settleOrReleaseBilling(id, duration)
 
   emitDashboardEvent('call:ended', toDashboardCallPayload(call), call.campaign?.commercialAccountId ?? null)
   return call

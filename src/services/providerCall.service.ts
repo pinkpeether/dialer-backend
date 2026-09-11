@@ -166,26 +166,25 @@ export const hangupBackendOriginated = async (input: { callId?: number | string 
       where: { id: callRecord.id },
       select: {
         id: true,
-        startedAt: true,
-        connectedAt: true,
         duration: true,
       },
     }).catch(() => null)
 
-    const durationStart = fullCallRecord?.connectedAt || fullCallRecord?.startedAt
-    const computedDuration = durationStart
-      ? Math.max(0, Math.round((endedAt.getTime() - durationStart.getTime()) / 1000))
-      : 0
+    const duration = fullCallRecord?.duration && fullCallRecord.duration > 0 ? fullCallRecord.duration : 0
 
     await prisma.call.update({
       where: { id: callRecord.id },
       data: {
         endedAt,
-        duration: fullCallRecord?.duration && fullCallRecord.duration > 0 ? fullCallRecord.duration : computedDuration,
-        status: computedDuration > 0 ? 'COMPLETED' : 'NO_ANSWER',
+        duration,
+        status: duration > 0 ? 'COMPLETED' : 'NO_ANSWER',
       },
     }).catch(() => undefined)
-    await callingBillingService.settleCallAuthorization(callRecord.id, computedDuration).catch(() => undefined)
+    if (duration > 0) {
+      await callingBillingService.settleCallAuthorization(callRecord.id, duration).catch(() => undefined)
+    } else {
+      await callingBillingService.releaseCallAuthorization(callRecord.id).catch(() => undefined)
+    }
   }
 
   logger.info('Backend-originated PTDT-Dialer hangup requested')
