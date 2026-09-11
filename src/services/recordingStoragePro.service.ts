@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
+import * as Scope from './commercialScope.service'
 
 type RecordingSearchFilters = {
   page?: number
@@ -70,39 +71,45 @@ const getCutoffDate = (retentionDays: number) => {
   return cutoff
 }
 
-const buildSearchWhere = (filters: RecordingSearchFilters): Prisma.CallWhereInput => {
-  const where: Prisma.CallWhereInput = {
+const hasWhere = (where: Prisma.CallWhereInput) => Object.keys(where).length > 0
+
+const buildSearchWhere = async (
+  filters: RecordingSearchFilters,
+  actor?: Scope.ScopeActor,
+): Promise<Prisma.CallWhereInput> => {
+  const scopedWhere = await Scope.callScopeWhere(actor)
+  const filterWhere: Prisma.CallWhereInput = {
     recordingUrl: { not: null },
   }
 
-  if (filters.campaignId) where.campaignId = filters.campaignId
-  if (filters.agentId) where.agentId = filters.agentId
-  if (filters.status) where.status = filters.status as never
-  if (filters.source) where.source = filters.source
+  if (filters.campaignId) filterWhere.campaignId = filters.campaignId
+  if (filters.agentId) filterWhere.agentId = filters.agentId
+  if (filters.status) filterWhere.status = filters.status as never
+  if (filters.source) filterWhere.source = filters.source
 
   const from = toDate(filters.from)
   const to = toDate(filters.to)
   if (from || to) {
-    where.startedAt = {}
-    if (from) where.startedAt.gte = from
-    if (to) where.startedAt.lte = to
+    filterWhere.startedAt = {}
+    if (from) filterWhere.startedAt.gte = from
+    if (to) filterWhere.startedAt.lte = to
   }
 
   if (Number.isFinite(filters.minDuration) || Number.isFinite(filters.maxDuration)) {
-    where.duration = {}
-    if (Number.isFinite(filters.minDuration)) where.duration.gte = Number(filters.minDuration)
-    if (Number.isFinite(filters.maxDuration)) where.duration.lte = Number(filters.maxDuration)
+    filterWhere.duration = {}
+    if (Number.isFinite(filters.minDuration)) filterWhere.duration.gte = Number(filters.minDuration)
+    if (Number.isFinite(filters.maxDuration)) filterWhere.duration.lte = Number(filters.maxDuration)
   }
 
   if (filters.hasTranscript === true) {
-    where.transcript = { isNot: null }
+    filterWhere.transcript = { isNot: null }
   } else if (filters.hasTranscript === false) {
-    where.transcript = { is: null }
+    filterWhere.transcript = { is: null }
   }
 
   const search = filters.search?.trim()
   if (search) {
-    where.OR = [
+    filterWhere.OR = [
       { remoteNumber: { contains: search, mode: 'insensitive' } },
       { recordingSid: { contains: search, mode: 'insensitive' } },
       { contact: { phone: { contains: search, mode: 'insensitive' } } },
@@ -113,13 +120,15 @@ const buildSearchWhere = (filters: RecordingSearchFilters): Prisma.CallWhereInpu
     ]
   }
 
-  return where
+  return hasWhere(scopedWhere)
+    ? { AND: [scopedWhere, filterWhere] }
+    : filterWhere
 }
 
-export const searchRecordings = async (filters: RecordingSearchFilters) => {
+export const searchRecordings = async (filters: RecordingSearchFilters, actor?: Scope.ScopeActor) => {
   const page = safeInt(filters.page, 1, 1, 100000)
   const limit = safeInt(filters.limit, 25, 1, 100)
-  const where = buildSearchWhere(filters)
+  const where = await buildSearchWhere(filters, actor)
 
   const [items, total] = await Promise.all([
     prisma.call.findMany({
@@ -168,11 +177,11 @@ export const searchRecordings = async (filters: RecordingSearchFilters) => {
   }
 }
 
-export const getRecordingDownload = async (callId: number) => {
+export const getRecordingDownload = async (callId: number, actor?: Scope.ScopeActor) => {
   if (!Number.isFinite(callId)) throw new AppError('Invalid call id', 400)
 
-  const call = await prisma.call.findUnique({
-    where: { id: callId },
+  const call = await prisma.call.findFirst({
+    where: { id: callId, ...(await Scope.callScopeWhere(actor)) },
     include: {
       contact: { select: { name: true, phone: true } },
       campaign: { select: { name: true } },
@@ -195,26 +204,31 @@ export const getRecordingDownload = async (callId: number) => {
   }
 }
 
-export const getRecordingStorageOverview = async () => {
+export const getRecordingStorageOverview = async (actor?: Scope.ScopeActor) => {
+  const scopedWhere = await Scope.callScopeWhere(actor)
+  const recordingsWhere: Prisma.CallWhereInput = hasWhere(scopedWhere)
+    ? { AND: [scopedWhere, { recordingUrl: { not: null } }] }
+    : { recordingUrl: { not: null } }
+
   const [totalRecordings, callsWithDuration, transcribedRecordings, insightRecordings, bySource, byStatus] = await Promise.all([
-    prisma.call.count({ where: { recordingUrl: { not: null } } }),
+    prisma.call.count({ where: recordingsWhere }),
     prisma.call.aggregate({
-      where: { recordingUrl: { not: null } },
+      where: recordingsWhere,
       _sum: { duration: true },
       _avg: { duration: true },
       _max: { duration: true },
       _min: { duration: true },
     }),
-    prisma.call.count({ where: { recordingUrl: { not: null }, transcript: { isNot: null } } }),
-    prisma.call.count({ where: { recordingUrl: { not: null }, insight: { isNot: null } } }),
+    prisma.call.count({ where: { AND: [recordingsWhere, { transcript: { isNot: null } }] } }),
+    prisma.call.count({ where: { AND: [recordingsWhere, { insight: { isNot: null } }] } }),
     prisma.call.groupBy({
       by: ['source'],
-      where: { recordingUrl: { not: null } },
+      where: recordingsWhere,
       _count: { _all: true },
     }),
     prisma.call.groupBy({
       by: ['status'],
-      where: { recordingUrl: { not: null } },
+      where: recordingsWhere,
       _count: { _all: true },
     }),
   ])
@@ -263,7 +277,18 @@ export const getRetentionPolicy = async () => {
   return normalizePolicy(setting?.value)
 }
 
-export const updateRetentionPolicy = async (input: Partial<RetentionPolicy>, updatedBy?: number) => {
+const assertPlatformRetentionActor = (actor?: Scope.ScopeActor) => {
+  if (!Scope.isPlatformActor(actor)) {
+    throw new AppError('Recording retention policy is restricted to platform admins.', 403)
+  }
+}
+
+export const updateRetentionPolicy = async (
+  input: Partial<RetentionPolicy>,
+  updatedBy?: number,
+  actor?: Scope.ScopeActor,
+) => {
+  assertPlatformRetentionActor(actor)
   const existing = await getRetentionPolicy()
   const policy = normalizePolicy({ ...existing, ...input })
 
@@ -283,15 +308,24 @@ export const updateRetentionPolicy = async (input: Partial<RetentionPolicy>, upd
   return policy
 }
 
-export const previewRetentionPurge = async (override?: Partial<RetentionPolicy>) => {
+export const previewRetentionPurge = async (
+  override?: Partial<RetentionPolicy>,
+  actor?: Scope.ScopeActor,
+) => {
   const policy = normalizePolicy({ ...(await getRetentionPolicy()), ...(override || {}) })
   const cutoff = getCutoffDate(policy.retentionDays)
+  const scopedWhere = await Scope.callScopeWhere(actor)
 
   const where: Prisma.CallWhereInput = {
-    recordingUrl: { not: null },
-    OR: [
-      { endedAt: { lt: cutoff } },
-      { endedAt: null, createdAt: { lt: cutoff } },
+    AND: [
+      ...(hasWhere(scopedWhere) ? [scopedWhere] : []),
+      { recordingUrl: { not: null } },
+      {
+        OR: [
+          { endedAt: { lt: cutoff } },
+          { endedAt: null, createdAt: { lt: cutoff } },
+        ],
+      },
     ],
   }
 
@@ -335,6 +369,7 @@ export const previewRetentionPurge = async (override?: Partial<RetentionPolicy>)
 export const runRetentionPurge = async (
   options: { dryRun?: boolean; policyOverride?: Partial<RetentionPolicy> },
   actorId?: number,
+  actor?: Scope.ScopeActor,
 ) => {
   const policy = normalizePolicy({ ...(await getRetentionPolicy()), ...(options.policyOverride || {}) })
   const dryRun = options.dryRun ?? policy.dryRunDefault
@@ -343,7 +378,7 @@ export const runRetentionPurge = async (
     throw new AppError('Retention policy is disabled. Enable it or run a dry-run preview first.', 400)
   }
 
-  const preview = await previewRetentionPurge(policy)
+  const preview = await previewRetentionPurge(policy, actor)
   const callIds = preview.sample.map(call => call.id)
 
   // For safety, a single purge run is capped to the first 50 oldest recordings.
@@ -407,8 +442,8 @@ export const runRetentionPurge = async (
   }
 }
 
-export const exportRecordingSearchCsv = async (filters: RecordingSearchFilters) => {
-  const result = await searchRecordings({ ...filters, page: 1, limit: 1000 })
+export const exportRecordingSearchCsv = async (filters: RecordingSearchFilters, actor?: Scope.ScopeActor) => {
+  const result = await searchRecordings({ ...filters, page: 1, limit: 1000 }, actor)
   const headers = [
     'callId',
     'campaign',

@@ -34,16 +34,16 @@ const filtersFromQuery = (query: Record<string, unknown>) => ({
 
 export const search = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await RecordingStorageProService.searchRecordings(filtersFromQuery(req.query))
+    const result = await RecordingStorageProService.searchRecordings(filtersFromQuery(req.query), req.user)
     return sendSuccess(res, result, 'Recording search completed')
   } catch (err) {
     return next(err)
   }
 }
 
-export const overview = async (_req: AuthRequest, res: Response, next: NextFunction) => {
+export const overview = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await RecordingStorageProService.getRecordingStorageOverview()
+    const result = await RecordingStorageProService.getRecordingStorageOverview(req.user)
     return sendSuccess(res, result, 'Recording storage overview fetched')
   } catch (err) {
     return next(err)
@@ -52,7 +52,7 @@ export const overview = async (_req: AuthRequest, res: Response, next: NextFunct
 
 export const downloadInfo = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await RecordingStorageProService.getRecordingDownload(Number(req.params.callId))
+    const result = await RecordingStorageProService.getRecordingDownload(Number(req.params.callId), req.user)
     return sendSuccess(res, result, 'Recording download link fetched')
   } catch (err) {
     return next(err)
@@ -61,7 +61,7 @@ export const downloadInfo = async (req: AuthRequest, res: Response, next: NextFu
 
 export const redirectDownload = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await RecordingStorageProService.getRecordingDownload(Number(req.params.callId))
+    const result = await RecordingStorageProService.getRecordingDownload(Number(req.params.callId), req.user)
     return res.redirect(result.downloadUrl)
   } catch (err) {
     return next(err)
@@ -70,7 +70,7 @@ export const redirectDownload = async (req: AuthRequest, res: Response, next: Ne
 
 export const exportCsv = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const csv = await RecordingStorageProService.exportRecordingSearchCsv(filtersFromQuery(req.query))
+    const csv = await RecordingStorageProService.exportRecordingSearchCsv(filtersFromQuery(req.query), req.user)
     res.setHeader('Content-Type', 'text/csv; charset=utf-8')
     res.setHeader('Content-Disposition', 'attachment; filename="ptdt-recordings-export.csv"')
     return res.send(csv)
@@ -90,7 +90,7 @@ export const getRetentionPolicy = async (_req: AuthRequest, res: Response, next:
 
 export const updateRetentionPolicy = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await RecordingStorageProService.updateRetentionPolicy(req.body || {}, req.user?.id)
+    const result = await RecordingStorageProService.updateRetentionPolicy(req.body || {}, req.user?.id, req.user)
     return sendSuccess(res, result, 'Recording retention policy updated')
   } catch (err) {
     return next(err)
@@ -99,7 +99,7 @@ export const updateRetentionPolicy = async (req: AuthRequest, res: Response, nex
 
 export const previewPurge = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await RecordingStorageProService.previewRetentionPurge(req.body || {})
+    const result = await RecordingStorageProService.previewRetentionPurge(req.body || {}, req.user)
     return sendSuccess(res, result, 'Retention purge preview generated')
   } catch (err) {
     return next(err)
@@ -111,7 +111,7 @@ export const runPurge = async (req: AuthRequest, res: Response, next: NextFuncti
     const result = await RecordingStorageProService.runRetentionPurge({
       dryRun: parseBool(req.body?.dryRun),
       policyOverride: req.body?.policyOverride,
-    }, req.user?.id)
+    }, req.user?.id, req.user)
     return sendSuccess(res, result, result.message)
   } catch (err) {
     return next(err)

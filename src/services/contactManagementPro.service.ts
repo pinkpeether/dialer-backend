@@ -1,5 +1,7 @@
+import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
+import * as Scope from './commercialScope.service'
 
 const TAGS_PATTERN = /\[PTDT_TAGS:([^\]]*)\]/
 const TAGS_PREFIX = '[PTDT_TAGS:'
@@ -48,8 +50,21 @@ const csvEscape = (value: unknown) => {
   return `"${text.replace(/"/g, '""')}"`
 }
 
-export const getDuplicateContacts = async () => {
+const hasWhere = (where: Prisma.ContactWhereInput) => Object.keys(where).length > 0
+
+const mergeContactScope = async (
+  filterWhere: Prisma.ContactWhereInput,
+  actor?: Scope.ScopeActor,
+): Promise<Prisma.ContactWhereInput> => {
+  const scopedWhere = await Scope.contactScopeWhere(actor)
+  return hasWhere(scopedWhere)
+    ? { AND: [scopedWhere, filterWhere] }
+    : filterWhere
+}
+
+export const getDuplicateContacts = async (actor?: Scope.ScopeActor) => {
   const contacts = await prisma.contact.findMany({
+    where: await Scope.contactScopeWhere(actor),
     select: {
       id: true,
       name: true,
@@ -95,11 +110,11 @@ export const getDuplicateContacts = async () => {
   }
 }
 
-export const getContactTimeline = async (contactId: number) => {
+export const getContactTimeline = async (contactId: number, actor?: Scope.ScopeActor) => {
   if (!Number.isFinite(contactId)) throw new AppError('Invalid contact id', 400)
 
-  const contact = await prisma.contact.findUnique({
-    where: { id: contactId },
+  const contact = await prisma.contact.findFirst({
+    where: await mergeContactScope({ id: contactId }, actor),
     include: {
       campaign: { select: { id: true, name: true, status: true } },
       calls: {
@@ -180,9 +195,9 @@ export const getContactTimeline = async (contactId: number) => {
   }
 }
 
-export const updateContactNotes = async (contactId: number, notes: string) => {
+export const updateContactNotes = async (contactId: number, notes: string, actor?: Scope.ScopeActor) => {
   if (!Number.isFinite(contactId)) throw new AppError('Invalid contact id', 400)
-  const existing = await prisma.contact.findUnique({ where: { id: contactId } })
+  const existing = await prisma.contact.findFirst({ where: await mergeContactScope({ id: contactId }, actor) })
   if (!existing) throw new AppError('Contact not found', 404)
 
   const tags = parseTagsFromNotes(existing.notes)
@@ -198,9 +213,9 @@ export const updateContactNotes = async (contactId: number, notes: string) => {
   }
 }
 
-export const updateContactTags = async (contactId: number, tags: string[]) => {
+export const updateContactTags = async (contactId: number, tags: string[], actor?: Scope.ScopeActor) => {
   if (!Number.isFinite(contactId)) throw new AppError('Invalid contact id', 400)
-  const existing = await prisma.contact.findUnique({ where: { id: contactId } })
+  const existing = await prisma.contact.findFirst({ where: await mergeContactScope({ id: contactId }, actor) })
   if (!existing) throw new AppError('Contact not found', 404)
 
   const contact = await prisma.contact.update({
@@ -215,11 +230,15 @@ export const updateContactTags = async (contactId: number, tags: string[]) => {
   }
 }
 
-export const previewContactImport = async (rows: ContactImportRow[], campaignId?: number) => {
+export const previewContactImport = async (
+  rows: ContactImportRow[],
+  campaignId?: number,
+  actor?: Scope.ScopeActor,
+) => {
   if (!Array.isArray(rows)) throw new AppError('contacts array is required', 400)
 
   const campaign = campaignId
-    ? await prisma.campaign.findUnique({ where: { id: campaignId } })
+    ? await prisma.campaign.findFirst({ where: { id: campaignId, ...(await Scope.campaignScopeWhere(actor)) } })
     : null
   if (campaignId && !campaign) throw new AppError('Campaign not found', 404)
 
@@ -239,7 +258,9 @@ export const previewContactImport = async (rows: ContactImportRow[], campaignId?
 
   const existingContacts = validPhones.length > 0
     ? await prisma.contact.findMany({
-        where: { phone: { in: Array.from(new Set(normalizedRows.map(row => row.phone).filter(Boolean))) } },
+        where: await mergeContactScope({
+          phone: { in: Array.from(new Set(normalizedRows.map(row => row.phone).filter(Boolean))) },
+        }, actor),
         select: { id: true, phone: true, campaignId: true, status: true },
       })
     : []
@@ -290,12 +311,12 @@ export const previewContactImport = async (rows: ContactImportRow[], campaignId?
   }
 }
 
-export const exportContactsCsv = async (filters: ExportFilters) => {
-  const where: Record<string, unknown> = {}
-  if (filters.campaignId && Number.isFinite(filters.campaignId)) where.campaignId = filters.campaignId
-  if (filters.status) where.status = String(filters.status).toUpperCase()
+export const exportContactsCsv = async (filters: ExportFilters, actor?: Scope.ScopeActor) => {
+  const filterWhere: Prisma.ContactWhereInput = {}
+  if (filters.campaignId && Number.isFinite(filters.campaignId)) filterWhere.campaignId = filters.campaignId
+  if (filters.status) filterWhere.status = String(filters.status).toUpperCase() as never
   if (filters.search) {
-    where.OR = [
+    filterWhere.OR = [
       { name: { contains: filters.search, mode: 'insensitive' } },
       { phone: { contains: filters.search, mode: 'insensitive' } },
       { email: { contains: filters.search, mode: 'insensitive' } },
@@ -304,7 +325,7 @@ export const exportContactsCsv = async (filters: ExportFilters) => {
   }
 
   const contacts = await prisma.contact.findMany({
-    where,
+    where: await mergeContactScope(filterWhere, actor),
     include: {
       campaign: { select: { id: true, name: true } },
       calls: { select: { id: true }, take: 1 },

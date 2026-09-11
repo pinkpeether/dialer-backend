@@ -1,6 +1,7 @@
 import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
-import { CallDisposition, ContactStatus, UserRole } from '@prisma/client'
+import { CallDisposition, CommercialAccountMembershipStatus, ContactStatus, UserRole } from '@prisma/client'
+import * as Scope from './commercialScope.service'
 
 export type LiveAiSentiment = 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE' | 'CRITICAL'
 export type AnswerDetection = 'UNKNOWN' | 'HUMAN' | 'VOICEMAIL' | 'NOISE_OR_SILENCE'
@@ -15,6 +16,7 @@ type LiveTranscriptChunkInput = {
 type LiveAiSession = {
   callId: number
   campaignId?: number | null
+  commercialAccountId?: number | null
   contactId?: number | null
   agentId?: number | null
   startedByUserId?: number | null
@@ -152,10 +154,25 @@ const buildFollowUpSuggestion = (text: string) => {
 }
 
 const createSupervisorAlert = async (session: LiveAiSession, message: string, severity: 'WARNING' | 'CRITICAL') => {
+  const accountRecipients = session.commercialAccountId
+    ? [{
+        role: { in: [UserRole.CUSTOMER_ADMIN, UserRole.SUPERVISOR] },
+        commercialMemberships: {
+          some: {
+            accountId: session.commercialAccountId,
+            status: CommercialAccountMembershipStatus.ACTIVE,
+          },
+        },
+      }]
+    : []
+
   const supervisors = await prisma.user.findMany({
     where: {
       isActive: true,
-      role: { in: [UserRole.ADMIN, UserRole.SUPERVISOR] },
+      OR: [
+        { role: { in: [UserRole.SUPER_ADMIN, UserRole.ADMIN] } },
+        ...accountRecipients,
+      ],
     },
     select: { id: true },
   })
@@ -179,11 +196,16 @@ const createSupervisorAlert = async (session: LiveAiSession, message: string, se
   })
 }
 
-export const startLiveAiSession = async (callId: number, startedByUserId?: number | null) => {
+const assertSessionAccess = async (session: LiveAiSession, actor?: Scope.ScopeActor) => {
+  await Scope.assertCallAccess(session.callId, actor)
+  return session
+}
+
+export const startLiveAiSession = async (callId: number, actor?: Scope.ScopeActor) => {
   if (!Number.isFinite(callId)) throw new AppError('Invalid call id', 400)
 
-  const call = await prisma.call.findUnique({
-    where: { id: callId },
+  const call = await prisma.call.findFirst({
+    where: { id: callId, ...(await Scope.callScopeWhere(actor)) },
     include: {
       campaign: true,
       contact: true,
@@ -199,9 +221,10 @@ export const startLiveAiSession = async (callId: number, startedByUserId?: numbe
   const session: LiveAiSession = {
     callId,
     campaignId: call.campaignId,
+    commercialAccountId: call.campaign?.commercialAccountId || null,
     contactId: call.contactId,
     agentId: call.agentId,
-    startedByUserId: startedByUserId || null,
+    startedByUserId: actor?.id || null,
     startedAt: nowIso(),
     updatedAt: nowIso(),
     stoppedAt: null,
@@ -222,27 +245,44 @@ export const startLiveAiSession = async (callId: number, startedByUserId?: numbe
   return session
 }
 
-export const getLiveAiSession = async (callId: number) => {
+export const getLiveAiSession = async (callId: number, actor?: Scope.ScopeActor) => {
   if (!Number.isFinite(callId)) throw new AppError('Invalid call id', 400)
   const session = sessions.get(callId)
   if (!session) throw new AppError('Live AI session not found', 404)
-  return session
+  return assertSessionAccess(session, actor)
 }
 
-export const listLiveAiSessions = async () => {
-  return Array.from(sessions.values()).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+export const listLiveAiSessions = async (actor?: Scope.ScopeActor) => {
+  const allSessions = Array.from(sessions.values())
+  if (Scope.isPlatformActor(actor)) {
+    return allSessions.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  }
+
+  const callIds = allSessions.map(session => session.callId)
+  if (callIds.length === 0) return []
+
+  const visibleCalls = await prisma.call.findMany({
+    where: { id: { in: callIds }, ...(await Scope.callScopeWhere(actor)) },
+    select: { id: true },
+  })
+  const visibleCallIds = new Set(visibleCalls.map(call => call.id))
+
+  return allSessions
+    .filter(session => visibleCallIds.has(session.callId))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 }
 
 export const ingestLiveTranscriptChunk = async (
   callId: number,
   input: LiveTranscriptChunkInput,
-  actorId?: number | null,
+  actor?: Scope.ScopeActor,
 ) => {
   const text = normalizeText(input.text)
   if (!text) throw new AppError('Transcript chunk text is required', 400)
 
   let session = sessions.get(callId)
-  if (!session) session = await startLiveAiSession(callId, actorId)
+  if (!session) session = await startLiveAiSession(callId, actor)
+  await assertSessionAccess(session, actor)
 
   if (session.status !== 'LIVE') throw new AppError('Live AI session is stopped', 400)
 
@@ -295,9 +335,9 @@ export const ingestLiveTranscriptChunk = async (
   return session
 }
 
-export const getSmartScriptPrompt = async (callId: number) => {
-  const call = await prisma.call.findUnique({
-    where: { id: callId },
+export const getSmartScriptPrompt = async (callId: number, actor?: Scope.ScopeActor) => {
+  const call = await prisma.call.findFirst({
+    where: { id: callId, ...(await Scope.callScopeWhere(actor)) },
     include: { campaign: true, contact: true },
   })
   if (!call) throw new AppError('Call not found', 404)
@@ -323,9 +363,10 @@ export const getSmartScriptPrompt = async (callId: number) => {
   }
 }
 
-export const applyAutoDisposition = async (callId: number, actorId?: number | null) => {
+export const applyAutoDisposition = async (callId: number, actor?: Scope.ScopeActor) => {
   const session = sessions.get(callId)
   if (!session) throw new AppError('Live AI session not found', 404)
+  await assertSessionAccess(session, actor)
   if (!session.autoDisposition) throw new AppError('No auto disposition suggestion available', 400)
 
   const disposition = session.autoDisposition
@@ -342,7 +383,7 @@ export const applyAutoDisposition = async (callId: number, actorId?: number | nu
     where: { id: callId },
     data: {
       disposition,
-      notes: `Live AI auto-disposition suggested/applied by user ${actorId || 'system'}: ${disposition}`,
+      notes: `Live AI auto-disposition suggested/applied by user ${actor?.id || 'system'}: ${disposition}`,
     },
   })
 
@@ -359,9 +400,16 @@ export const applyAutoDisposition = async (callId: number, actorId?: number | nu
   return { callId, disposition, contactStatus: contactStatusByDisposition[disposition] || null }
 }
 
-export const createLiveAiFollowUp = async (callId: number, agentId: number, minutesFromNow?: number, notes?: string) => {
+export const createLiveAiFollowUp = async (
+  callId: number,
+  agentId: number,
+  minutesFromNow?: number,
+  notes?: string,
+  actor?: Scope.ScopeActor,
+) => {
   const session = sessions.get(callId)
   if (!session) throw new AppError('Live AI session not found', 404)
+  await assertSessionAccess(session, actor)
   if (!session.contactId) throw new AppError('Call has no contact attached', 400)
 
   const minutes = Math.max(5, Math.min(60 * 24 * 30, Math.floor(minutesFromNow || session.followUpSuggestion?.suggestedMinutesFromNow || 120)))
@@ -381,9 +429,10 @@ export const createLiveAiFollowUp = async (callId: number, agentId: number, minu
   return callback
 }
 
-export const stopLiveAiSession = async (callId: number) => {
+export const stopLiveAiSession = async (callId: number, actor?: Scope.ScopeActor) => {
   const session = sessions.get(callId)
   if (!session) throw new AppError('Live AI session not found', 404)
+  await assertSessionAccess(session, actor)
   session.status = 'STOPPED'
   session.stoppedAt = nowIso()
   session.updatedAt = nowIso()
