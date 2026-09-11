@@ -3,6 +3,16 @@ import { AppError } from '../middleware/errorHandler'
 
 const PROVIDER = 'ILLYVOIP'
 const PROVIDER_CURRENCY = 'EUR'
+const DEFAULT_PROVIDER_PROFILE = {
+  provider: PROVIDER,
+  displayName: 'illyVoIP',
+  providerType: 'SIP_TRUNK',
+  status: 'ACTIVE',
+  balanceMode: 'MANUAL',
+  trunkName: 'illyvoip-out',
+  apiName: 'SMS API only',
+  notes: 'Calling API docs are currently unavailable; provider balance is maintained manually until a provider adapter is available.',
+} as const
 
 const DEFAULT_RATES = [
   { destinationCode: 'NANP', destinationName: 'USA / Canada', dialPrefix: '1' },
@@ -17,6 +27,17 @@ const amount = (value: unknown) => {
 }
 
 const money = (value: number) => Number(value.toFixed(4))
+const normalizeProviderCode = (value: unknown) => String(value || PROVIDER)
+  .trim()
+  .toUpperCase()
+  .replace(/[^A-Z0-9]+/g, '_')
+  .replace(/^_+|_+$/g, '')
+  .slice(0, 40) || PROVIDER
+const optionalText = (value: unknown) => {
+  if (value === undefined) return undefined
+  const text = String(value || '').trim()
+  return text || null
+}
 const positiveInt = (value: unknown, label: string) => {
   const parsed = Number(value)
   if (!Number.isInteger(parsed) || parsed < 0) throw new AppError(`${label} must be a non-negative whole number`, 400)
@@ -30,7 +51,7 @@ export async function ensureCallingBillingDefaults() {
   const provider = await prisma.commercialProviderWallet.upsert({
     where: { provider: PROVIDER },
     update: {},
-    create: { provider: PROVIDER, currency: PROVIDER_CURRENCY, reserveBalance: '5.0000', enforcementEnabled: false },
+    create: { ...DEFAULT_PROVIDER_PROFILE, currency: PROVIDER_CURRENCY, reserveBalance: '5.0000', enforcementEnabled: false },
   })
 
   await Promise.all(DEFAULT_RATES.map(rate => prisma.commercialCallingRate.upsert({
@@ -56,13 +77,39 @@ async function providerCapacity() {
 export const callingBillingService = {
   async getPlatformSetup() {
     const { provider, outstanding, allocatable } = await providerCapacity()
+    const providers = await prisma.commercialProviderWallet.findMany({ orderBy: [{ status: 'asc' }, { provider: 'asc' }] })
     const rates = await prisma.commercialCallingRate.findMany({ orderBy: { destinationCode: 'asc' } })
-    return { provider, outstandingCustomerCredit: outstanding, allocatableCustomerCredit: allocatable, rates }
+    return { provider, providers, outstandingCustomerCredit: outstanding, allocatableCustomerCredit: allocatable, rates }
   },
 
-  async updateProviderWallet(input: { availableBalance?: unknown; reserveBalance?: unknown; enforcementEnabled?: unknown }) {
+  async updateProviderWallet(input: {
+    provider?: unknown
+    displayName?: unknown
+    providerType?: unknown
+    status?: unknown
+    balanceMode?: unknown
+    trunkName?: unknown
+    apiBaseUrl?: unknown
+    apiUsername?: unknown
+    apiName?: unknown
+    apiKeyLabel?: unknown
+    apiSecretLabel?: unknown
+    passwordLabel?: unknown
+    docsUrl?: unknown
+    notes?: unknown
+    currency?: unknown
+    availableBalance?: unknown
+    reserveBalance?: unknown
+    enforcementEnabled?: unknown
+  }) {
     await ensureCallingBillingDefaults()
+    const provider = normalizeProviderCode(input.provider)
+    const currency = String(input.currency || PROVIDER_CURRENCY).trim().toUpperCase().slice(0, 3) || PROVIDER_CURRENCY
     const data: Record<string, unknown> = {}
+    ;(['displayName', 'providerType', 'status', 'balanceMode', 'trunkName', 'apiBaseUrl', 'apiUsername', 'apiName', 'apiKeyLabel', 'apiSecretLabel', 'passwordLabel', 'docsUrl', 'notes'] as const).forEach(key => {
+      if (input[key] !== undefined) data[key] = optionalText(input[key])
+    })
+    if (input.currency !== undefined) data.currency = currency
     if (input.availableBalance !== undefined) {
       const value = amount(input.availableBalance)
       if (value < 0) throw new AppError('Provider balance cannot be negative', 400)
@@ -74,7 +121,30 @@ export const callingBillingService = {
       data.reserveBalance = money(value).toFixed(4)
     }
     if (input.enforcementEnabled !== undefined) data.enforcementEnabled = Boolean(input.enforcementEnabled)
-    return prisma.commercialProviderWallet.update({ where: { provider: PROVIDER }, data })
+    return prisma.commercialProviderWallet.upsert({
+      where: { provider },
+      update: data,
+      create: {
+        provider,
+        displayName: optionalText(input.displayName) || provider,
+        providerType: optionalText(input.providerType) || 'SIP_TRUNK',
+        status: optionalText(input.status) || 'INACTIVE',
+        balanceMode: optionalText(input.balanceMode) || 'MANUAL',
+        trunkName: optionalText(input.trunkName),
+        apiBaseUrl: optionalText(input.apiBaseUrl),
+        apiUsername: optionalText(input.apiUsername),
+        apiName: optionalText(input.apiName),
+        apiKeyLabel: optionalText(input.apiKeyLabel),
+        apiSecretLabel: optionalText(input.apiSecretLabel),
+        passwordLabel: optionalText(input.passwordLabel),
+        docsUrl: optionalText(input.docsUrl),
+        notes: optionalText(input.notes),
+        currency,
+        availableBalance: input.availableBalance !== undefined ? data.availableBalance as string : '0.0000',
+        reserveBalance: input.reserveBalance !== undefined ? data.reserveBalance as string : '5.0000',
+        enforcementEnabled: Boolean(input.enforcementEnabled),
+      },
+    })
   },
 
   async saveRate(input: { destinationCode: string; destinationName: string; dialPrefix: string; carrierRatePerMinute: unknown; customerRatePerMinute: unknown; minimumSeconds: unknown; incrementSeconds: unknown; isActive: unknown }) {
@@ -108,7 +178,7 @@ export const callingBillingService = {
 
     const account = await prisma.commercialAccount.findUnique({ where: { id: accountId }, include: { wallet: true } })
     if (!account?.wallet) throw new AppError('Commercial wallet not found', 404)
-    if (account.wallet.currency !== PROVIDER_CURRENCY) throw new AppError('IllyVoIP calling credit requires this commercial account wallet to use EUR.', 409)
+    if (account.wallet.currency !== PROVIDER_CURRENCY) throw new AppError('Calling credit currently requires this commercial account wallet to use EUR.', 409)
 
     return prisma.$transaction(async tx => {
       const nextBalance = money(amount(account.wallet!.availableBalance) + credit)
@@ -124,9 +194,9 @@ export const callingBillingService = {
           direction: 'CREDIT',
           amount: credit.toFixed(4),
           balanceAfter: nextBalance.toFixed(4),
-          referenceType: 'ILLYVOIP_ALLOCATION',
+          referenceType: 'PROVIDER_ALLOCATION',
           referenceId: input.reference || null,
-          description: input.description || 'PTDT calling credit allocation from shared IllyVoIP capacity',
+          description: input.description || 'PTDT calling credit allocation from shared provider capacity',
           metadata: { includedMinutes, provider: PROVIDER, providerReserve: amount(provider.reserveBalance) },
         },
       })
@@ -150,8 +220,8 @@ export const callingBillingService = {
     if (!account?.wallet) return null
 
     if (account.status !== 'ACTIVE') throw new AppError('Commercial account is not active for outbound calling.', 403)
-    if (account.wallet.currency !== PROVIDER_CURRENCY) throw new AppError('Outbound calling requires an EUR commercial wallet while IllyVoIP is the carrier.', 409)
-    if (amount(provider.availableBalance) <= amount(provider.reserveBalance)) throw new AppError('IllyVoIP provider reserve reached. Outbound calling is paused until the provider wallet is topped up.', 402)
+    if (account.wallet.currency !== PROVIDER_CURRENCY) throw new AppError('Outbound calling requires an EUR commercial wallet while the active provider wallet is EUR.', 409)
+    if (amount(provider.availableBalance) <= amount(provider.reserveBalance)) throw new AppError('Provider reserve reached. Outbound calling is paused until the provider wallet is topped up.', 402)
 
     const destination = normalizeDestination(call.remoteNumber || '')
     const rates = await prisma.commercialCallingRate.findMany({ where: { isActive: true }, orderBy: { dialPrefix: 'desc' } })

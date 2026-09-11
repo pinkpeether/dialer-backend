@@ -198,7 +198,29 @@ export const administrationService = {
         include: {
           account: {
             include: {
-              wallet: true,
+              wallet: {
+                include: {
+                  transactions: { orderBy: { createdAt: 'desc' }, take: 25 },
+                  callAuthorizations: {
+                    include: {
+                      rate: true,
+                      call: {
+                        select: {
+                          id: true,
+                          remoteNumber: true,
+                          status: true,
+                          duration: true,
+                          startedAt: true,
+                          endedAt: true,
+                          agent: { select: { id: true, name: true, email: true, extension: true } },
+                        },
+                      },
+                    },
+                    orderBy: { createdAt: 'desc' },
+                    take: 25,
+                  },
+                },
+              },
               subscriptions: { include: { plan: true }, orderBy: { startsAt: 'desc' }, take: 1 },
               addons: { include: { addon: true }, orderBy: { id: 'asc' } },
             },

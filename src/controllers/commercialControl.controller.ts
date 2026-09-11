@@ -311,7 +311,7 @@ export const getCallingSetup = async (_req: AuthRequest, res: Response, next: Ne
 
 export const updateCallingProvider = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    return sendSuccess(res, await callingBillingService.updateProviderWallet(req.body || {}), 'IllyVoIP provider wallet updated')
+    return sendSuccess(res, await callingBillingService.updateProviderWallet(req.body || {}), 'Provider profile updated')
   } catch (err) {
     return next(err)
   }

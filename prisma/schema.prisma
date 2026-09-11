@@ -648,6 +648,22 @@ enum CommercialCallAuthorizationStatus {
 model CommercialProviderWallet {
   id                  Int      @id @default(autoincrement())
   provider            String   @unique
+  displayName         String?
+  providerType        String   @default("SIP_TRUNK")
+  status              String   @default("ACTIVE")
+  balanceMode         String   @default("MANUAL")
+  trunkName           String?
+  apiBaseUrl          String?
+  apiUsername         String?
+  apiName             String?
+  apiKeyLabel         String?
+  apiSecretLabel      String?
+  passwordLabel       String?
+  docsUrl             String?
+  notes               String?
+  lastBalanceSyncAt   DateTime?
+  lastBalanceSyncStatus String?
+  lastBalanceSyncError String?
   currency            String   @default("EUR")
   availableBalance    Decimal  @default(0) @db.Decimal(12, 4)
   reserveBalance      Decimal  @default(5) @db.Decimal(12, 4)
