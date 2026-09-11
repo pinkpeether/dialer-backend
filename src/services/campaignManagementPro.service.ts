@@ -1,5 +1,6 @@
 import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
+import * as Scope from './commercialScope.service'
 
 const ALLOWED_MODES = ['MANUAL', 'PREVIEW', 'PROGRESSIVE', 'PREDICTIVE'] as const
 
@@ -29,6 +30,8 @@ type ScriptPopupInput = {
   agentName?: string
   stage?: string
 }
+
+type Actor = Scope.ScopeActor
 
 const normalizePhone = (value: unknown) => String(value || '').trim()
 const cleanText = (value: unknown) => {
@@ -218,9 +221,14 @@ const getContactStats = async (campaignId: number) => {
   }
 }
 
-export const getCampaignManagementSummary = async (campaignId: number) => {
-  const campaign = await prisma.campaign.findUnique({
-    where: { id: campaignId },
+const campaignWhere = async (campaignId: number, actor?: Actor) => ({
+  id: campaignId,
+  ...(await Scope.campaignScopeWhere(actor)),
+})
+
+export const getCampaignManagementSummary = async (campaignId: number, actor?: Actor) => {
+  const campaign = await prisma.campaign.findFirst({
+    where: await campaignWhere(campaignId, actor),
     include: { _count: { select: { contacts: true, calls: true } } },
   })
   if (!campaign) throw new AppError('Campaign not found', 404)
@@ -234,8 +242,8 @@ export const getCampaignManagementSummary = async (campaignId: number) => {
   }
 }
 
-export const getCampaignScript = async (campaignId: number) => {
-  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } })
+export const getCampaignScript = async (campaignId: number, actor?: Actor) => {
+  const campaign = await prisma.campaign.findFirst({ where: await campaignWhere(campaignId, actor) })
   if (!campaign) throw new AppError('Campaign not found', 404)
   return {
     campaignId,
@@ -246,8 +254,8 @@ export const getCampaignScript = async (campaignId: number) => {
   }
 }
 
-export const updateCampaignScript = async (campaignId: number, script: string) => {
-  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } })
+export const updateCampaignScript = async (campaignId: number, script: string, actor?: Actor) => {
+  const campaign = await prisma.campaign.findFirst({ where: await campaignWhere(campaignId, actor) })
   if (!campaign) throw new AppError('Campaign not found', 404)
 
   const updated = await prisma.campaign.update({
@@ -262,14 +270,14 @@ export const updateCampaignScript = async (campaignId: number, script: string) =
   }
 }
 
-export const getAgentScriptPopup = async (campaignId: number, input: ScriptPopupInput) => {
-  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } })
+export const getAgentScriptPopup = async (campaignId: number, input: ScriptPopupInput, actor?: Actor) => {
+  const campaign = await prisma.campaign.findFirst({ where: await campaignWhere(campaignId, actor) })
   if (!campaign) throw new AppError('Campaign not found', 404)
 
   const contact = input.contactId
-    ? await prisma.contact.findUnique({ where: { id: input.contactId } })
+    ? await prisma.contact.findFirst({ where: { id: input.contactId, campaignId, ...(await Scope.contactScopeWhere(actor)) } })
     : input.callId
-      ? (await prisma.call.findUnique({ where: { id: input.callId }, include: { contact: true } }))?.contact || null
+      ? (await prisma.call.findFirst({ where: { id: input.callId, campaignId, ...(await Scope.callScopeWhere(actor)) }, include: { contact: true } }))?.contact || null
       : null
 
   const baseScript = campaign.script || 'Hello {{name}}, this is {{agentName}} calling from PTDT regarding {{campaignName}}.'
@@ -297,9 +305,9 @@ export const getAgentScriptPopup = async (campaignId: number, input: ScriptPopup
   }
 }
 
-export const cloneCampaignAdvanced = async (campaignId: number, options: { includeContacts?: boolean; resetContactStatuses?: boolean; name?: string }) => {
-  const original = await prisma.campaign.findUnique({
-    where: { id: campaignId },
+export const cloneCampaignAdvanced = async (campaignId: number, options: { includeContacts?: boolean; resetContactStatuses?: boolean; name?: string }, actor?: Actor) => {
+  const original = await prisma.campaign.findFirst({
+    where: await campaignWhere(campaignId, actor),
     include: { contacts: options.includeContacts ? true : false },
   })
   if (!original) throw new AppError('Campaign not found', 404)
@@ -319,6 +327,7 @@ export const cloneCampaignAdvanced = async (campaignId: number, options: { inclu
       endTime: original.endTime,
       timezone: original.timezone,
       mode: original.mode,
+      commercialAccountId: original.commercialAccountId,
     },
   })
 
@@ -343,8 +352,8 @@ export const cloneCampaignAdvanced = async (campaignId: number, options: { inclu
   return { clonedCampaign: cloned, clonedContacts }
 }
 
-export const importCampaignContacts = async (campaignId: number, options: ImportOptions) => {
-  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } })
+export const importCampaignContacts = async (campaignId: number, options: ImportOptions, actor?: Actor) => {
+  const campaign = await prisma.campaign.findFirst({ where: await campaignWhere(campaignId, actor) })
   if (!campaign) throw new AppError('Campaign not found', 404)
 
   const parsedRows = parseImportFile(options)
@@ -406,8 +415,8 @@ export const importCampaignContacts = async (campaignId: number, options: Import
   }
 }
 
-export const getDialSettings = async (campaignId: number) => {
-  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } })
+export const getDialSettings = async (campaignId: number, actor?: Actor) => {
+  const campaign = await prisma.campaign.findFirst({ where: await campaignWhere(campaignId, actor) })
   if (!campaign) throw new AppError('Campaign not found', 404)
   return {
     campaignId,
@@ -442,8 +451,8 @@ export const getDialSettings = async (campaignId: number) => {
   }
 }
 
-export const updateDialSettings = async (campaignId: number, data: Record<string, unknown>) => {
-  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } })
+export const updateDialSettings = async (campaignId: number, data: Record<string, unknown>, actor?: Actor) => {
+  const campaign = await prisma.campaign.findFirst({ where: await campaignWhere(campaignId, actor) })
   if (!campaign) throw new AppError('Campaign not found', 404)
 
   const updated = await prisma.campaign.update({
@@ -476,11 +485,11 @@ export const updateDialSettings = async (campaignId: number, data: Record<string
     },
   })
 
-  return getDialSettings(updated.id)
+  return getDialSettings(updated.id, actor)
 }
 
-export const buildEndOfCampaignPdfReport = async (campaignId: number) => {
-  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } })
+export const buildEndOfCampaignPdfReport = async (campaignId: number, actor?: Actor) => {
+  const campaign = await prisma.campaign.findFirst({ where: await campaignWhere(campaignId, actor) })
   if (!campaign) throw new AppError('Campaign not found', 404)
 
   const stats = await getContactStats(campaignId)
