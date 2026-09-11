@@ -7,6 +7,7 @@ import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import { sendSuccess } from '../utils/response'
 import { uploadRecordingAndCreateSignedUrl } from '../services/recordingStorage.service'
+import { ingestFreepbxCallEvent as ingestFreepbxCallEventService } from '../services/freepbxCallEvent.service'
 
 const getExtension = (filename?: string) => {
   const ext = path.extname(filename || '').toLowerCase()
@@ -342,5 +343,19 @@ export const ingestFreepbxRecording = async (
     if (tempFilePath) {
       await fs.promises.unlink(tempFilePath).catch(() => undefined)
     }
+  }
+}
+
+export const ingestFreepbxCallEvent = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    requireIngestSecret(req)
+    const result = await ingestFreepbxCallEventService(req.body || {})
+    return sendSuccess(res, result, 'FreePBX call event ingested')
+  } catch (err) {
+    return next(err)
   }
 }

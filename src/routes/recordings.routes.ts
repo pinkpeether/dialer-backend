@@ -33,6 +33,7 @@ const recordingUpload = multer({
 })
 
 router.post('/ingest/freepbx', recordingUpload.single('file'), RecordingIngestController.ingestFreepbxRecording)
+router.post('/ingest/freepbx/cdr', RecordingIngestController.ingestFreepbxCallEvent)
 
 // Signed playback URL endpoint. Auth headers are not available to <audio>, so token verification is the auth.
 router.get('/:callId/stream', RecordingController.stream)
