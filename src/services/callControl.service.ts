@@ -3,6 +3,7 @@ import { AppError } from '../middleware/errorHandler'
 import logger from '../utils/logger'
 import { logAuditEvent } from './audit.service'
 import { transferBackendOriginatedCall } from './asteriskAmi.service'
+import { hangupBackendOriginated } from './providerCall.service'
 import * as Scope from './commercialScope.service'
 
 type Actor = {
@@ -36,7 +37,7 @@ const getCall = async (payload: Record<string, unknown>, actor?: Actor) => {
       where: { id: callId, ...(await Scope.callScopeWhere(actor)) },
       include: {
         contact: { select: { id: true, name: true, phone: true } },
-        agent: { select: { id: true, name: true, email: true, role: true } },
+        agent: { select: { id: true, name: true, email: true, role: true, extension: true } },
         campaign: { select: { id: true, name: true } },
       },
     })
@@ -49,7 +50,7 @@ const getCall = async (payload: Record<string, unknown>, actor?: Actor) => {
       where: { providerCallId, ...(await Scope.callScopeWhere(actor)) },
       include: {
         contact: { select: { id: true, name: true, phone: true } },
-        agent: { select: { id: true, name: true, email: true, role: true } },
+        agent: { select: { id: true, name: true, email: true, role: true, extension: true } },
         campaign: { select: { id: true, name: true } },
       },
     })
@@ -103,19 +104,6 @@ const withResult = (
   processedAt: new Date().toISOString(),
 })
 
-const markCallCompleted = async (callId: number, action: string, notes?: string) => {
-  await prisma.call.update({
-    where: { id: callId },
-    data: {
-      status: 'COMPLETED',
-      endedAt: new Date(),
-      notes: notes ? `${notes}` : undefined,
-    },
-  }).catch(() => null)
-
-  logger.info(`Call ${callId} marked completed by ${action}`)
-}
-
 const providerName = () => process.env.SIP_TRUNK_PROVIDER || process.env.CALL_PROVIDER || 'sip_trunk'
 
 export const getCapabilities = () => ({
@@ -125,11 +113,11 @@ export const getCapabilities = () => ({
   actions: {
     hangup: {
       status: 'READY',
-      notes: 'Call record completion works immediately. Live carrier hangup can be added per PBX or trunk adapter.',
+      notes: 'Uses Asterisk AMI for backend-originated calls and reports no-match instead of marking false completion.',
     },
     dtmf: {
-      status: 'READY',
-      notes: 'DTMF action is acknowledged at the unified control layer and can be expanded through a PBX adapter.',
+      status: 'NEEDS_PROVIDER',
+      notes: 'DTMF requires a live PBX/provider adapter and is not acknowledged as sent until wired.',
     },
     hold: {
       status: 'NEEDS_PROVIDER',
@@ -202,24 +190,35 @@ export const runControlAction = async ({ action, payload, actor, ipAddress }: Ru
 
   switch (normalized) {
     case 'hangup': {
-      await markCallCompleted(
-        callId,
-        'hangup',
-        providerCallId
-          ? `Call ended from PTDT control layer for provider reference ${providerCallId}.`
-          : 'Call ended from PTDT control layer without provider reference.'
-      )
-      result = withResult(normalized, providerCallId ? 'COMPLETED' : 'ACKNOWLEDGED', 'Call marked completed.', {
+      const hangup = await hangupBackendOriginated({
         callId,
         providerCallId: providerCallId || null,
+        phone: safeString(call.remoteNumber) || null,
+        agentExtension: safeString(payload.agentExtension) || call.agent?.extension || null,
       })
+      const completed = hangup.enabled && hangup.channels.length > 0
+
+      result = withResult(
+        normalized,
+        completed ? 'COMPLETED' : hangup.enabled ? 'ACKNOWLEDGED' : 'NEEDS_PROVIDER_SETUP',
+        completed
+          ? 'Live hangup requested for matched Asterisk channel(s).'
+          : hangup.enabled
+            ? 'No active Asterisk channel matched this call; call record was not marked completed.'
+            : 'Asterisk AMI is not enabled for live hangup.',
+        {
+          callId,
+          providerCallId: providerCallId || null,
+          channelCount: hangup.channels.length,
+        }
+      )
       break
     }
 
     case 'dtmf': {
       const digits = safeString(payload.digits)
       if (!digits) throw new AppError('digits is required for DTMF', 400)
-      result = withResult(normalized, 'COMPLETED', 'DTMF request acknowledged by the control layer.', {
+      result = withResult(normalized, 'NOT_SUPPORTED_FOR_CURRENT_PROVIDER', 'DTMF is not wired to a live PBX/provider adapter yet.', {
         callId,
         providerCallId: providerCallId || null,
         digits,

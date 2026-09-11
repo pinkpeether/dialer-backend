@@ -204,7 +204,7 @@ function sendAmi(actions: string[]): Promise<string> {
 
     socket.on('close', () => {
       clearTimeout(timer)
-      if (!settled) resolve(buffer)
+      if (!settled) reject(new AppError('Asterisk AMI connection closed before originate confirmation', 502))
     })
   })
 }
@@ -350,6 +350,7 @@ function findHangupTargets(channels: ConciseChannel[], input: AmiHangupInput) {
   const callId = input.callId ? String(input.callId) : ''
   const providerCallId = input.providerCallId ? String(input.providerCallId) : ''
   const hasStrongInput = Boolean(phoneDigits || agentExtension || callId || providerCallId)
+  if (!hasStrongInput) return []
 
   const matched = channels.filter(item => {
     const blob = [
@@ -377,12 +378,10 @@ function findHangupTargets(channels: ConciseChannel[], input: AmiHangupInput) {
       item.data.includes('/' + agentExtension)
     ))
     const matchesTrunkLeg = Boolean(TRUNK_NAME && item.channel.includes(TRUNK_NAME) && (
-      matchesPhone ||
-      blob.includes(ORIGINATE_ACCOUNT)
+      matchesPhone
     ))
-    const weakAccountMatch = !hasStrongInput && Boolean(ORIGINATE_ACCOUNT && blob.includes(ORIGINATE_ACCOUNT))
 
-    return matchesPhone || matchesCallId || matchesProvider || matchesAgent || matchesTrunkLeg || weakAccountMatch
+    return matchesPhone || matchesCallId || matchesProvider || matchesAgent || matchesTrunkLeg
   })
 
   const bridgeIds = new Set(matched.map(item => item.bridgeId).filter(Boolean))
@@ -398,9 +397,9 @@ function findHangupTargets(channels: ConciseChannel[], input: AmiHangupInput) {
   /*
     Last-resort safe fallback for this backend-originated call:
     if exact matching found nothing but we have agent/destination input, kill
-    channels that are clearly PTDT account-code/current agent/current trunk.
+    only channels that match the current agent or destination, then expand by bridge.
   */
-  if (targetSet.size === 0 && hasStrongInput) {
+  if (targetSet.size === 0) {
     const fallbackBridgeIds = new Set<string>()
 
     channels.forEach(item => {
@@ -411,10 +410,8 @@ function findHangupTargets(channels: ConciseChannel[], input: AmiHangupInput) {
         item.data.includes('/' + agentExtension)
       ))
       const isDestinationLeg = Boolean(phoneDigits && rawDigits.includes(phoneDigits))
-      const isPtdtTrunkLeg = Boolean(TRUNK_NAME && item.channel.includes(TRUNK_NAME) && item.raw.includes(ORIGINATE_ACCOUNT))
-      const isPtdtContextLeg = item.context === TWO_LEG_CONTEXT && item.raw.includes(ORIGINATE_ACCOUNT)
 
-      if (item.channel && (isAgentLeg || isDestinationLeg || isPtdtTrunkLeg || isPtdtContextLeg)) {
+      if (item.channel && (isAgentLeg || isDestinationLeg)) {
         targetSet.add(item.channel)
         if (item.bridgeId) fallbackBridgeIds.add(item.bridgeId)
       }
@@ -435,7 +432,7 @@ export async function originateOutboundCall(input: AmiOriginateInput): Promise<A
   const providerCallId = actionId()
 
   if (!AMI_ENABLED) {
-    return { enabled: false, providerCallId }
+    throw new AppError('Asterisk AMI is disabled. Backend-originated outbound calling is not available.', 503)
   }
 
   if (!AMI_USERNAME || !AMI_PASSWORD) throw new AppError('Asterisk AMI credentials are not configured', 500)

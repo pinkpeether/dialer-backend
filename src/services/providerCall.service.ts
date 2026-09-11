@@ -80,7 +80,7 @@ export const initiateCall = async (contactId: number, campaignId: number, actorO
     })
     const updatedCall = await prisma.call.update({ where: { id: callRecord.id }, data: { providerCallId: originate.providerCallId } })
     await prisma.contact.update({ where: { id: contactId }, data: { status: 'CALLING', lastCalledAt: new Date() } })
-    logger.info(originate.enabled ? 'Asterisk AMI originate queued for campaign/contact call' : 'AMI disabled; provider placeholder created')
+    logger.info('Asterisk AMI originate queued for campaign/contact call')
     return {
       callRecord: { ...updatedCall, callerId: outboundCallerId, dynamicCallerIdUsed: Boolean(dynamicCallerId), backendOriginate: originate.enabled, agentExtension },
       providerCall: { id: originate.providerCallId, to: contact.phone, from: outboundCallerId, backendOriginate: originate.enabled, agentExtension },
@@ -136,7 +136,7 @@ export const initiateAdhocCall = async (phone: string, actorOrAgentId: Actor | n
       dynamicCallerIdUsed: Boolean(dynamicCallerId),
     })
     const updatedCall = await prisma.call.update({ where: { id: callRecord.id }, data: { providerCallId: originate.providerCallId } })
-    logger.info(originate.enabled ? 'Asterisk AMI originate queued for ad-hoc call' : 'AMI disabled; ad-hoc provider placeholder created')
+    logger.info('Asterisk AMI originate queued for ad-hoc call')
     return { callSid: originate.providerCallId, callId: updatedCall.id, contactId: contact.id, phone, providerCallId: originate.providerCallId, callerId: outboundCallerId, dynamicCallerIdUsed: Boolean(dynamicCallerId), backendOriginate: originate.enabled, agentExtension }
   } catch (err) {
     await callingBillingService.releaseCallAuthorization(callRecord.id).catch(() => undefined)
@@ -160,7 +160,7 @@ export const hangupBackendOriginated = async (input: { callId?: number | string 
     agentExtension: input.agentExtension || null,
   })
 
-  if (callRecord?.id) {
+  if (callRecord?.id && result.enabled && result.channels.length > 0) {
     const endedAt = new Date()
     const fullCallRecord = await prisma.call.findUnique({
       where: { id: callRecord.id },
@@ -197,5 +197,6 @@ export const hangupCall = async (providerCallId: string) => {
 }
 
 export const sendDTMF = async (_providerCallId: string, _digits: string) => {
-  logger.info('Provider DTMF request acknowledged')
+  logger.info('Provider DTMF request rejected because no live DTMF adapter is configured')
+  throw new AppError('DTMF is not wired to a live PBX/provider adapter yet.', 501)
 }
