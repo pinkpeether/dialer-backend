@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 
@@ -46,6 +47,25 @@ const positiveInt = (value: unknown, label: string) => {
 
 const normalizeDestination = (value: string) => value.replace(/[^0-9]/g, '')
 const billableSeconds = (duration: number, minimum: number, increment: number) => Math.ceil(Math.max(duration, minimum) / increment) * increment
+type BillingTx = Prisma.TransactionClient
+
+const isSerializableConflict = (error: unknown) =>
+  Boolean(error && typeof error === 'object' && 'code' in error && (error as { code?: string }).code === 'P2034')
+
+const serializableBillingTransaction = async <T>(fn: (tx: BillingTx) => Promise<T>, attempts = 3): Promise<T> => {
+  try {
+    return await prisma.$transaction(fn, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      maxWait: 5000,
+      timeout: 10000,
+    })
+  } catch (error) {
+    if (attempts > 1 && isSerializableConflict(error)) {
+      return serializableBillingTransaction(fn, attempts - 1)
+    }
+    throw error
+  }
+}
 
 export async function ensureCallingBillingDefaults() {
   const provider = await prisma.commercialProviderWallet.upsert({
@@ -66,6 +86,19 @@ export async function ensureCallingBillingDefaults() {
 async function providerCapacity() {
   const provider = await ensureCallingBillingDefaults()
   const aggregate = await prisma.commercialWallet.aggregate({
+    _sum: { availableBalance: true, heldBalance: true },
+    where: { currency: PROVIDER_CURRENCY },
+  })
+  const outstanding = amount(aggregate._sum.availableBalance) + amount(aggregate._sum.heldBalance)
+  const allocatable = Math.max(0, amount(provider.availableBalance) - amount(provider.reserveBalance) - outstanding)
+  return { provider, outstanding: money(outstanding), allocatable: money(allocatable) }
+}
+
+async function providerCapacityTx(tx: BillingTx) {
+  const provider = await tx.commercialProviderWallet.findUnique({ where: { provider: PROVIDER } })
+  if (!provider) throw new AppError('Calling provider wallet is not configured', 500)
+
+  const aggregate = await tx.commercialWallet.aggregate({
     _sum: { availableBalance: true, heldBalance: true },
     where: { currency: PROVIDER_CURRENCY },
   })
@@ -173,14 +206,15 @@ export const callingBillingService = {
     if (credit < 0) throw new AppError('Calling credit cannot be negative', 400)
     if (credit === 0 && includedMinutes === 0) throw new AppError('Enter calling credit or included minutes', 400)
 
-    const { provider, allocatable } = await providerCapacity()
-    if (credit > allocatable) throw new AppError(`Only EUR ${allocatable.toFixed(4)} can be allocated while preserving the EUR ${amount(provider.reserveBalance).toFixed(2)} IllyVoIP reserve.`, 409)
+    await ensureCallingBillingDefaults()
+    return serializableBillingTransaction(async tx => {
+      const { provider, allocatable } = await providerCapacityTx(tx)
+      if (credit > allocatable) throw new AppError(`Only EUR ${allocatable.toFixed(4)} can be allocated while preserving the EUR ${amount(provider.reserveBalance).toFixed(2)} IllyVoIP reserve.`, 409)
 
-    const account = await prisma.commercialAccount.findUnique({ where: { id: accountId }, include: { wallet: true } })
-    if (!account?.wallet) throw new AppError('Commercial wallet not found', 404)
-    if (account.wallet.currency !== PROVIDER_CURRENCY) throw new AppError('Calling credit currently requires this commercial account wallet to use EUR.', 409)
+      const account = await tx.commercialAccount.findUnique({ where: { id: accountId }, include: { wallet: true } })
+      if (!account?.wallet) throw new AppError('Commercial wallet not found', 404)
+      if (account.wallet.currency !== PROVIDER_CURRENCY) throw new AppError('Calling credit currently requires this commercial account wallet to use EUR.', 409)
 
-    return prisma.$transaction(async tx => {
       const nextBalance = money(amount(account.wallet!.availableBalance) + credit)
       const nextIncludedSeconds = account.wallet!.includedSeconds + includedMinutes * 60
       const wallet = await tx.commercialWallet.update({
@@ -205,35 +239,38 @@ export const callingBillingService = {
   },
 
   async authorizeCall(callId: number) {
-    const existing = await prisma.commercialCallAuthorization.findUnique({ where: { callId } })
-    if (existing) return existing
-
     const provider = await prisma.commercialProviderWallet.findUnique({ where: { provider: PROVIDER } })
     if (!provider?.enforcementEnabled) return null
 
-    const call = await prisma.call.findUnique({
-      where: { id: callId },
-      include: { campaign: { include: { commercialAccount: { include: { wallet: true } } } } },
-    })
-    if (!call) throw new AppError('Call not found for calling authorization', 404)
-    const account = call.campaign.commercialAccount
-    if (!account?.wallet) return null
+    return serializableBillingTransaction(async tx => {
+      const existing = await tx.commercialCallAuthorization.findUnique({ where: { callId } })
+      if (existing) return existing
 
-    if (account.status !== 'ACTIVE') throw new AppError('Commercial account is not active for outbound calling.', 403)
-    if (account.wallet.currency !== PROVIDER_CURRENCY) throw new AppError('Outbound calling requires an EUR commercial wallet while the active provider wallet is EUR.', 409)
-    if (amount(provider.availableBalance) <= amount(provider.reserveBalance)) throw new AppError('Provider reserve reached. Outbound calling is paused until the provider wallet is topped up.', 402)
+      const currentProvider = await tx.commercialProviderWallet.findUnique({ where: { provider: PROVIDER } })
+      if (!currentProvider?.enforcementEnabled) return null
 
-    const destination = normalizeDestination(call.remoteNumber || '')
-    const rates = await prisma.commercialCallingRate.findMany({ where: { isActive: true }, orderBy: { dialPrefix: 'desc' } })
-    const rate = rates.sort((a, b) => b.dialPrefix.length - a.dialPrefix.length).find(item => destination.startsWith(item.dialPrefix))
-    if (!rate) throw new AppError('No active EUR calling rate matches this destination. Configure the rate card before placing this call.', 422)
+      const call = await tx.call.findUnique({
+        where: { id: callId },
+        include: { campaign: { include: { commercialAccount: { include: { wallet: true } } } } },
+      })
+      if (!call) throw new AppError('Call not found for calling authorization', 404)
+      const account = call.campaign.commercialAccount
+      if (!account?.wallet) return null
 
-    const minimumSeconds = billableSeconds(rate.minimumSeconds, rate.minimumSeconds, rate.incrementSeconds)
-    const heldIncludedSeconds = Math.min(account.wallet.includedSeconds, minimumSeconds)
-    const heldAmount = money((minimumSeconds - heldIncludedSeconds) / 60 * amount(rate.customerRatePerMinute))
-    if (amount(account.wallet.availableBalance) + amount(account.wallet.creditLimit) < heldAmount) throw new AppError('Calling wallet has insufficient credit for this destination.', 402)
+      if (account.status !== 'ACTIVE') throw new AppError('Commercial account is not active for outbound calling.', 403)
+      if (account.wallet.currency !== PROVIDER_CURRENCY) throw new AppError('Outbound calling requires an EUR commercial wallet while the active provider wallet is EUR.', 409)
+      if (amount(currentProvider.availableBalance) <= amount(currentProvider.reserveBalance)) throw new AppError('Provider reserve reached. Outbound calling is paused until the provider wallet is topped up.', 402)
 
-    return prisma.$transaction(async tx => {
+      const destination = normalizeDestination(call.remoteNumber || '')
+      const rates = await tx.commercialCallingRate.findMany({ where: { isActive: true }, orderBy: { dialPrefix: 'desc' } })
+      const rate = rates.sort((a, b) => b.dialPrefix.length - a.dialPrefix.length).find(item => destination.startsWith(item.dialPrefix))
+      if (!rate) throw new AppError('No active EUR calling rate matches this destination. Configure the rate card before placing this call.', 422)
+
+      const minimumSeconds = billableSeconds(rate.minimumSeconds, rate.minimumSeconds, rate.incrementSeconds)
+      const heldIncludedSeconds = Math.min(account.wallet.includedSeconds, minimumSeconds)
+      const heldAmount = money((minimumSeconds - heldIncludedSeconds) / 60 * amount(rate.customerRatePerMinute))
+      if (amount(account.wallet.availableBalance) + amount(account.wallet.creditLimit) < heldAmount) throw new AppError('Calling wallet has insufficient credit for this destination.', 402)
+
       const wallet = await tx.commercialWallet.update({
         where: { id: account.wallet!.id },
         data: {
@@ -254,25 +291,39 @@ export const callingBillingService = {
   },
 
   async releaseCallAuthorization(callId: number) {
-    const authorization = await prisma.commercialCallAuthorization.findUnique({ where: { callId } })
-    if (!authorization || authorization.status !== 'HELD') return authorization
-    return prisma.$transaction(async tx => {
+    return serializableBillingTransaction(async tx => {
+      const authorization = await tx.commercialCallAuthorization.findUnique({ where: { callId } })
+      if (!authorization || authorization.status !== 'HELD') return authorization
+      const statusUpdate = await tx.commercialCallAuthorization.updateMany({
+        where: { id: authorization.id, status: 'HELD' },
+        data: { status: 'RELEASED', releasedAt: new Date() },
+      })
+      if (statusUpdate.count !== 1) {
+        return tx.commercialCallAuthorization.findUnique({ where: { id: authorization.id } })
+      }
       const wallet = await tx.commercialWallet.findUniqueOrThrow({ where: { id: authorization.walletId } })
       const updated = await tx.commercialWallet.update({
         where: { id: wallet.id },
         data: { availableBalance: money(amount(wallet.availableBalance) + amount(authorization.heldAmount)).toFixed(4), heldBalance: money(Math.max(0, amount(wallet.heldBalance) - amount(authorization.heldAmount))).toFixed(4), includedSeconds: wallet.includedSeconds + authorization.heldIncludedSeconds, heldIncludedSeconds: Math.max(0, wallet.heldIncludedSeconds - authorization.heldIncludedSeconds) },
       })
       await tx.commercialWalletTransaction.create({ data: { walletId: wallet.id, type: 'RELEASE', direction: 'RELEASE', amount: authorization.heldAmount, balanceAfter: updated.availableBalance, referenceType: 'CALL_AUTHORIZATION', referenceId: authorization.id, description: 'Outbound calling authorization released' } })
-      return tx.commercialCallAuthorization.update({ where: { id: authorization.id }, data: { status: 'RELEASED', releasedAt: new Date() } })
+      return tx.commercialCallAuthorization.findUnique({ where: { id: authorization.id } })
     })
   },
 
   async settleCallAuthorization(callId: number, durationSeconds: number) {
-    const authorization = await prisma.commercialCallAuthorization.findUnique({ where: { callId }, include: { rate: true } })
-    if (!authorization || authorization.status !== 'HELD') return authorization
     if (durationSeconds <= 0) return this.releaseCallAuthorization(callId)
 
-    return prisma.$transaction(async tx => {
+    return serializableBillingTransaction(async tx => {
+      const authorization = await tx.commercialCallAuthorization.findUnique({ where: { callId }, include: { rate: true } })
+      if (!authorization || authorization.status !== 'HELD') return authorization
+      const statusUpdate = await tx.commercialCallAuthorization.updateMany({
+        where: { id: authorization.id, status: 'HELD' },
+        data: { status: 'SETTLED', settledAt: new Date() },
+      })
+      if (statusUpdate.count !== 1) {
+        return tx.commercialCallAuthorization.findUnique({ where: { id: authorization.id }, include: { rate: true } })
+      }
       const wallet = await tx.commercialWallet.findUniqueOrThrow({ where: { id: authorization.walletId } })
       const billedSeconds = billableSeconds(durationSeconds, authorization.rate.minimumSeconds, authorization.rate.incrementSeconds)
       const additionalIncludedSeconds = Math.min(wallet.includedSeconds, Math.max(0, billedSeconds - authorization.heldIncludedSeconds))
@@ -287,7 +338,7 @@ export const callingBillingService = {
       await tx.commercialWalletTransaction.create({
         data: { walletId: wallet.id, type: 'CALL_CHARGE', direction: 'DEBIT', amount: charge.toFixed(4), balanceAfter: updated.availableBalance, referenceType: 'CALL', referenceId: String(callId), description: `Outbound call charge: ${billedSeconds} billable seconds`, metadata: { authorizationId: authorization.id, billedSeconds, includedSeconds, ratePerMinute: authorization.rate.customerRatePerMinute.toString() } },
       })
-      return tx.commercialCallAuthorization.update({ where: { id: authorization.id }, data: { status: 'SETTLED', settledAt: new Date() } })
+      return tx.commercialCallAuthorization.findUnique({ where: { id: authorization.id }, include: { rate: true } })
     })
   },
 }
