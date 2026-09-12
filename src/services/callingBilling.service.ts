@@ -28,6 +28,7 @@ const amount = (value: unknown) => {
 }
 
 const money = (value: number) => Number(value.toFixed(4))
+const truthy = (value: unknown) => ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase())
 const normalizeProviderCode = (value: unknown) => String(value || PROVIDER)
   .trim()
   .toUpperCase()
@@ -38,6 +39,11 @@ const optionalText = (value: unknown) => {
   if (value === undefined) return undefined
   const text = String(value || '').trim()
   return text || null
+}
+const positiveNumber = (value: unknown, fallback: number, label: string) => {
+  const parsed = Number(value ?? fallback)
+  if (!Number.isFinite(parsed) || parsed <= 0) throw new AppError(`${label} must be greater than zero`, 400)
+  return parsed
 }
 const positiveInt = (value: unknown, label: string) => {
   const parsed = Number(value)
@@ -309,6 +315,61 @@ export const callingBillingService = {
       await tx.commercialWalletTransaction.create({ data: { walletId: wallet.id, type: 'RELEASE', direction: 'RELEASE', amount: authorization.heldAmount, balanceAfter: updated.availableBalance, referenceType: 'CALL_AUTHORIZATION', referenceId: authorization.id, description: 'Outbound calling authorization released' } })
       return tx.commercialCallAuthorization.findUnique({ where: { id: authorization.id } })
     })
+  },
+
+  async releaseStaleHeldAuthorizations(input: { olderThanMinutes?: unknown; limit?: unknown; dryRun?: unknown } = {}) {
+    const olderThanMinutes = Math.min(24 * 60, positiveNumber(input.olderThanMinutes, 240, 'Stale hold age'))
+    const limit = Math.min(100, Math.max(1, positiveInt(input.limit ?? 50, 'Cleanup limit')))
+    const dryRun = input.dryRun === true || truthy(input.dryRun)
+    const cutoff = new Date(Date.now() - olderThanMinutes * 60 * 1000)
+
+    const candidates = await prisma.commercialCallAuthorization.findMany({
+      where: { status: 'HELD', createdAt: { lte: cutoff } },
+      include: { call: { select: { id: true, status: true, duration: true, endedAt: true, remoteNumber: true } } },
+      orderBy: { createdAt: 'asc' },
+      take: limit,
+    })
+
+    const items: Array<{
+      authorizationId: string
+      callId: number
+      action: 'SETTLE' | 'RELEASE'
+      statusBefore: string
+      durationSeconds: number
+      resultStatus?: string
+      skipped?: boolean
+    }> = []
+
+    let settled = 0
+    let released = 0
+
+    for (const authorization of candidates) {
+      const durationSeconds = Number(authorization.call?.duration || 0)
+      const action = durationSeconds > 0 ? 'SETTLE' : 'RELEASE'
+      if (dryRun) {
+        items.push({ authorizationId: authorization.id, callId: authorization.callId, action, statusBefore: authorization.status, durationSeconds, skipped: true })
+        continue
+      }
+
+      const result = action === 'SETTLE'
+        ? await this.settleCallAuthorization(authorization.callId, durationSeconds)
+        : await this.releaseCallAuthorization(authorization.callId)
+      const resultStatus = result?.status
+      if (resultStatus === 'SETTLED') settled += 1
+      if (resultStatus === 'RELEASED') released += 1
+      items.push({ authorizationId: authorization.id, callId: authorization.callId, action, statusBefore: authorization.status, durationSeconds, resultStatus })
+    }
+
+    return {
+      dryRun,
+      cutoff: cutoff.toISOString(),
+      olderThanMinutes,
+      scanned: candidates.length,
+      settled,
+      released,
+      skipped: dryRun ? candidates.length : Math.max(0, candidates.length - settled - released),
+      items,
+    }
   },
 
   async settleCallAuthorization(callId: number, durationSeconds: number) {

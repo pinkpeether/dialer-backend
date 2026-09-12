@@ -357,6 +357,14 @@ export const grantCallingAllowance = async (req: AuthRequest, res: Response, nex
   }
 }
 
+export const releaseStaleCallingHolds = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    return sendSuccess(res, await callingBillingService.releaseStaleHeldAuthorizations(req.body || {}), 'Stale calling holds reconciled')
+  } catch (err) {
+    return next(err)
+  }
+}
+
 export const authorizeCallingCall = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const callId = idParam(req.params.callId)

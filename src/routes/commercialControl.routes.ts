@@ -25,6 +25,7 @@ router.post('/admin/accounts/:accountId/wallet-reset', authorize('ADMIN'), Comme
 router.patch('/admin/accounts/:accountId/addons/:addonCode', authorize('ADMIN'), CommercialControlController.setAddonStatus)
 router.patch('/admin/accounts/:accountId/thresholds', authorize('ADMIN'), CommercialControlController.updateThresholds)
 router.get('/admin/calling-billing', authorize('ADMIN'), CommercialControlController.getCallingSetup)
+router.post('/admin/calling-billing/release-stale-holds', authorize('ADMIN'), CommercialControlController.releaseStaleCallingHolds)
 router.patch('/admin/calling-billing/provider', authorize('ADMIN'), CommercialControlController.updateCallingProvider)
 router.put('/admin/calling-billing/rates', authorize('ADMIN'), CommercialControlController.saveCallingRate)
 router.post('/admin/accounts/:accountId/calling-allowance', authorize('ADMIN'), CommercialControlController.grantCallingAllowance)

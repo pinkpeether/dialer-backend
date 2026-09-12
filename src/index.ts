@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import { httpServer } from './app'
+import { startCommercialBillingMaintenance } from './services/commercialBillingMaintenance.service'
 import logger from './utils/logger'
 
 const PORT = process.env.PORT || 3001
@@ -18,6 +19,7 @@ try {
   httpServer.listen(PORT, () => {
     console.log(`🚀 PTDT Dialer Backend running on port ${PORT}`)
     logger.info(`🚀 PTDT Dialer Backend running on http://localhost:${PORT}`)
+    startCommercialBillingMaintenance()
   })
 } catch (err) {
   console.error('FAILED TO START SERVER:', err)
