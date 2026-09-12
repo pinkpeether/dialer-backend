@@ -50,6 +50,11 @@ export type TopUpWalletInput = {
   reference?: string | null
 }
 
+export type ResetWalletAllowanceInput = {
+  reference?: string | null
+  description?: string | null
+}
+
 export type ActivatePlanInput = {
   planCode: CommercialPlanCode
   status?: SubscriptionStatus
@@ -851,6 +856,71 @@ export const commercialControlService = {
       accountId: account.id,
       targetCurrency,
       changed: result.changed,
+    })
+
+    return result
+  },
+
+  async resetWalletAllowance(accountId: number | string, input: ResetWalletAllowanceInput = {}, actor?: Actor) {
+    const account = await getAccountOrDefault(accountId)
+
+    const result = await prisma.$transaction(async tx => {
+      const wallet = await tx.commercialWallet.upsert({
+        where: { accountId: account.id },
+        update: {},
+        create: {
+          accountId: account.id,
+          currency: account.currency,
+          availableBalance: '0.0000',
+          heldBalance: '0.0000',
+          creditLimit: '0.0000',
+        },
+      })
+
+      if (toMoney(wallet.heldBalance) > 0 || wallet.heldIncludedSeconds > 0) {
+        throw new AppError('Cannot reset wallet while funds or included minutes are held by active calls.', 409)
+      }
+
+      const previousBalance = toMoney(wallet.availableBalance)
+      const previousIncludedSeconds = wallet.includedSeconds
+      const updatedWallet = await tx.commercialWallet.update({
+        where: { id: wallet.id },
+        data: {
+          availableBalance: '0.0000',
+          includedSeconds: 0,
+        },
+      })
+
+      const transaction = await tx.commercialWalletTransaction.create({
+        data: {
+          walletId: updatedWallet.id,
+          type: 'ADJUSTMENT',
+          direction: 'DEBIT',
+          amount: previousBalance.toFixed(4),
+          balanceAfter: '0.0000',
+          referenceType: 'VOICE_WALLET_RESET',
+          referenceId: input.reference || `account:${account.id}`,
+          description: input.description || 'Voice wallet balance and included minutes reset by PTDT Admin',
+          metadata: {
+            previousBalance,
+            previousIncludedSeconds,
+            previousIncludedMinutes: Math.floor(previousIncludedSeconds / 60),
+            approvedByUserId: actor?.id || null,
+            approvedByEmail: actor?.email || null,
+          },
+          approvedByUserId: actor?.id || null,
+        },
+      })
+
+      return { wallet: updatedWallet, transaction, previousBalance, previousIncludedSeconds }
+    })
+
+    await evaluateBalanceAlert(account.id)
+    await audit(actor, 'COMMERCIAL_WALLET_ALLOWANCE_RESET', 'CommercialWallet', result.wallet.id, {
+      accountId: account.id,
+      previousBalance: result.previousBalance,
+      previousIncludedSeconds: result.previousIncludedSeconds,
+      reference: input.reference || null,
     })
 
     return result

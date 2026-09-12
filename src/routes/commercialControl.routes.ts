@@ -21,6 +21,7 @@ router.patch('/admin/payment-requests/:id/status', authorize('ADMIN'), Commercia
 router.post('/admin/accounts/:accountId/activate-plan', authorize('ADMIN'), CommercialControlController.activatePlan)
 router.post('/admin/accounts/:accountId/topup', authorize('ADMIN'), CommercialControlController.topUpWallet)
 router.patch('/admin/accounts/:accountId/wallet-currency', authorize('ADMIN'), CommercialControlController.alignWalletCurrency)
+router.post('/admin/accounts/:accountId/wallet-reset', authorize('ADMIN'), CommercialControlController.resetWalletAllowance)
 router.patch('/admin/accounts/:accountId/addons/:addonCode', authorize('ADMIN'), CommercialControlController.setAddonStatus)
 router.patch('/admin/accounts/:accountId/thresholds', authorize('ADMIN'), CommercialControlController.updateThresholds)
 router.get('/admin/calling-billing', authorize('ADMIN'), CommercialControlController.getCallingSetup)
