@@ -1,4 +1,7 @@
+import type { ContactStatus, Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
+import { AppError } from '../middleware/errorHandler'
+import * as Scope from './commercialScope.service'
 import { toCsv } from '../utils/csv'
 
 export const exportCallsCsv = async (filters: {
@@ -6,8 +9,8 @@ export const exportCallsCsv = async (filters: {
   to?: Date
   campaignId?: number
   agentId?: number
-}) => {
-  const where: Record<string, unknown> = {}
+}, actor?: Scope.ScopeActor) => {
+  const where: Prisma.CallWhereInput = { ...(await Scope.callScopeWhere(actor)) }
   if (filters.campaignId) where.campaignId = filters.campaignId
   if (filters.agentId) where.agentId = filters.agentId
   if (filters.from || filters.to) {
@@ -59,10 +62,10 @@ export const exportContactsCsv = async (filters: {
   campaignId?: number
   status?: string
   search?: string
-}) => {
-  const where: Record<string, unknown> = {}
+}, actor?: Scope.ScopeActor) => {
+  const where: Prisma.ContactWhereInput = { ...(await Scope.contactScopeWhere(actor)) }
   if (filters.campaignId) where.campaignId = filters.campaignId
-  if (filters.status) where.status = filters.status
+  if (filters.status) where.status = filters.status as ContactStatus
   if (filters.search) {
     where.OR = [
       { name: { contains: filters.search, mode: 'insensitive' } },
@@ -106,16 +109,16 @@ export const exportContactsCsv = async (filters: {
   ])
 }
 
-export const exportCampaignCsv = async (campaignId: number) => {
-  const campaign = await prisma.campaign.findUnique({
-    where: { id: campaignId },
+export const exportCampaignCsv = async (campaignId: number, actor?: Scope.ScopeActor) => {
+  const campaign = await prisma.campaign.findFirst({
+    where: { id: campaignId, ...(await Scope.campaignScopeWhere(actor)) },
     include: {
       contacts: true,
       calls: true,
     },
   })
 
-  if (!campaign) return 'Metric,Value\nError,Campaign not found\n'
+  if (!campaign) throw new AppError('Campaign not found for this commercial account', 404)
 
   const totalCalls = campaign.calls.length
   const answered = campaign.calls.filter(c => c.disposition === 'ANSWERED').length

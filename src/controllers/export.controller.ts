@@ -21,7 +21,7 @@ export const callsCsv = async (req: AuthRequest, res: Response, next: NextFuncti
       to: getDate(req.query.to),
       campaignId: req.query.campaignId ? Number(req.query.campaignId) : undefined,
       agentId: req.query.agentId ? Number(req.query.agentId) : undefined,
-    })
+    }, req.user)
     return sendCsv(res, 'ptdt-calls.csv', csv)
   } catch (err) {
     return next(err)
@@ -34,7 +34,7 @@ export const contactsCsv = async (req: AuthRequest, res: Response, next: NextFun
       campaignId: req.query.campaignId ? Number(req.query.campaignId) : undefined,
       status: req.query.status as string | undefined,
       search: req.query.search as string | undefined,
-    })
+    }, req.user)
     return sendCsv(res, 'ptdt-contacts.csv', csv)
   } catch (err) {
     return next(err)
@@ -43,7 +43,7 @@ export const contactsCsv = async (req: AuthRequest, res: Response, next: NextFun
 
 export const campaignCsv = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const csv = await ExportService.exportCampaignCsv(Number(req.params.id))
+    const csv = await ExportService.exportCampaignCsv(Number(req.params.id), req.user)
     return sendCsv(res, `ptdt-campaign-${req.params.id}.csv`, csv)
   } catch (err) {
     return next(err)

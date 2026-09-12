@@ -10,7 +10,8 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
-    "audit:billing-concurrency": "npm run build && node dist/scripts/auditCommercialBillingConcurrency.js"
+    "audit:billing-concurrency": "npm run build && node dist/scripts/auditCommercialBillingConcurrency.js",
+    "audit:tenant-isolation": "npm run build && node dist/scripts/auditTenantIsolation.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1056.0",

@@ -1,6 +1,7 @@
 import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import { analyzeTranscriptInsight, transcribeRecording } from './aiProvider.service'
+import * as Scope from './commercialScope.service'
 import { refreshSignedRecordingUrlFromStoredUrl } from './recordingStorage.service'
 
 const truthyValues = new Set(['true', '1', 'yes', 'on'])
@@ -291,9 +292,9 @@ const buildCallIntelligenceResponse = ({
   }
 }
 
-export const getCallIntelligence = async (callId: number) => {
-  const call = await prisma.call.findUnique({
-    where: { id: callId },
+export const getCallIntelligence = async (callId: number, actor?: Scope.ScopeActor) => {
+  const call = await prisma.call.findFirst({
+    where: { id: callId, ...(await Scope.callScopeWhere(actor)) },
     select: callSelect,
   })
 
@@ -346,9 +347,9 @@ export const getCallIntelligence = async (callId: number) => {
   })
 }
 
-export const createTranscriptionJob = async (callId: number) => {
-  const call = await prisma.call.findUnique({
-    where: { id: callId },
+export const createTranscriptionJob = async (callId: number, actor?: Scope.ScopeActor) => {
+  const call = await prisma.call.findFirst({
+    where: { id: callId, ...(await Scope.callScopeWhere(actor)) },
     select: callSelect,
   })
 
@@ -435,9 +436,9 @@ export const createTranscriptionJob = async (callId: number) => {
   }
 }
 
-export const createCallInsight = async (callId: number) => {
-  const call = await prisma.call.findUnique({
-    where: { id: callId },
+export const createCallInsight = async (callId: number, actor?: Scope.ScopeActor) => {
+  const call = await prisma.call.findFirst({
+    where: { id: callId, ...(await Scope.callScopeWhere(actor)) },
     select: callSelect,
   })
 
