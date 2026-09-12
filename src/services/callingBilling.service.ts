@@ -55,18 +55,33 @@ const normalizeDestination = (value: string) => value.replace(/[^0-9]/g, '')
 const billableSeconds = (duration: number, minimum: number, increment: number) => Math.ceil(Math.max(duration, minimum) / increment) * increment
 type BillingTx = Prisma.TransactionClient
 
-const isSerializableConflict = (error: unknown) =>
-  Boolean(error && typeof error === 'object' && 'code' in error && (error as { code?: string }).code === 'P2034')
+const lockWalletForUpdate = async (tx: BillingTx, walletId: number) => {
+  await tx.$queryRaw<{ id: number }[]>`SELECT id FROM "CommercialWallet" WHERE id = ${walletId} FOR UPDATE`
+}
 
-const serializableBillingTransaction = async <T>(fn: (tx: BillingTx) => Promise<T>, attempts = 3): Promise<T> => {
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+const retryableConflictCodes = new Set(['P2028', 'P2034', '40P01', '40001'])
+const isSerializableConflict = (error: unknown) => {
+  const code = error && typeof error === 'object' && 'code' in error ? String((error as { code?: string }).code || '') : ''
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error || '').toLowerCase()
+  return retryableConflictCodes.has(code) ||
+    message.includes('write conflict') ||
+    message.includes('deadlock') ||
+    message.includes('40p01') ||
+    message.includes('unable to start a transaction') ||
+    message.includes('could not serialize access')
+}
+
+const serializableBillingTransaction = async <T>(fn: (tx: BillingTx) => Promise<T>, attempts = 10): Promise<T> => {
   try {
     return await prisma.$transaction(fn, {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      maxWait: 5000,
-      timeout: 10000,
+      maxWait: 15000,
+      timeout: 20000,
     })
   } catch (error) {
     if (attempts > 1 && isSerializableConflict(error)) {
+      await sleep((11 - attempts) * 150)
       return serializableBillingTransaction(fn, attempts - 1)
     }
     throw error
@@ -221,10 +236,12 @@ export const callingBillingService = {
       if (!account?.wallet) throw new AppError('Commercial wallet not found', 404)
       if (account.wallet.currency !== PROVIDER_CURRENCY) throw new AppError('Calling credit currently requires this commercial account wallet to use EUR.', 409)
 
-      const nextBalance = money(amount(account.wallet!.availableBalance) + credit)
-      const nextIncludedSeconds = account.wallet!.includedSeconds + includedMinutes * 60
+      await lockWalletForUpdate(tx, account.wallet.id)
+      const currentWallet = await tx.commercialWallet.findUniqueOrThrow({ where: { id: account.wallet.id } })
+      const nextBalance = money(amount(currentWallet.availableBalance) + credit)
+      const nextIncludedSeconds = currentWallet.includedSeconds + includedMinutes * 60
       const wallet = await tx.commercialWallet.update({
-        where: { id: account.wallet!.id },
+        where: { id: currentWallet.id },
         data: { availableBalance: nextBalance.toFixed(4), includedSeconds: nextIncludedSeconds },
       })
       const transaction = await tx.commercialWalletTransaction.create({
@@ -266,6 +283,8 @@ export const callingBillingService = {
       if (account.status !== 'ACTIVE') throw new AppError('Commercial account is not active for outbound calling.', 403)
       if (account.wallet.currency !== PROVIDER_CURRENCY) throw new AppError('Outbound calling requires an EUR commercial wallet while the active provider wallet is EUR.', 409)
       if (amount(currentProvider.availableBalance) <= amount(currentProvider.reserveBalance)) throw new AppError('Provider reserve reached. Outbound calling is paused until the provider wallet is topped up.', 402)
+      await lockWalletForUpdate(tx, account.wallet.id)
+      const currentWallet = await tx.commercialWallet.findUniqueOrThrow({ where: { id: account.wallet.id } })
 
       const destination = normalizeDestination(call.remoteNumber || '')
       const rates = await tx.commercialCallingRate.findMany({ where: { isActive: true }, orderBy: { dialPrefix: 'desc' } })
@@ -273,17 +292,17 @@ export const callingBillingService = {
       if (!rate) throw new AppError('No active EUR calling rate matches this destination. Configure the rate card before placing this call.', 422)
 
       const minimumSeconds = billableSeconds(rate.minimumSeconds, rate.minimumSeconds, rate.incrementSeconds)
-      const heldIncludedSeconds = Math.min(account.wallet.includedSeconds, minimumSeconds)
+      const heldIncludedSeconds = Math.min(currentWallet.includedSeconds, minimumSeconds)
       const heldAmount = money((minimumSeconds - heldIncludedSeconds) / 60 * amount(rate.customerRatePerMinute))
-      if (amount(account.wallet.availableBalance) + amount(account.wallet.creditLimit) < heldAmount) throw new AppError('Calling wallet has insufficient credit for this destination.', 402)
+      if (amount(currentWallet.availableBalance) + amount(currentWallet.creditLimit) < heldAmount) throw new AppError('Calling wallet has insufficient credit for this destination.', 402)
 
       const wallet = await tx.commercialWallet.update({
-        where: { id: account.wallet!.id },
+        where: { id: currentWallet.id },
         data: {
-          availableBalance: money(amount(account.wallet!.availableBalance) - heldAmount).toFixed(4),
-          heldBalance: money(amount(account.wallet!.heldBalance) + heldAmount).toFixed(4),
-          includedSeconds: account.wallet!.includedSeconds - heldIncludedSeconds,
-          heldIncludedSeconds: account.wallet!.heldIncludedSeconds + heldIncludedSeconds,
+          availableBalance: money(amount(currentWallet.availableBalance) - heldAmount).toFixed(4),
+          heldBalance: money(amount(currentWallet.heldBalance) + heldAmount).toFixed(4),
+          includedSeconds: currentWallet.includedSeconds - heldIncludedSeconds,
+          heldIncludedSeconds: currentWallet.heldIncludedSeconds + heldIncludedSeconds,
         },
       })
       const authorization = await tx.commercialCallAuthorization.create({
@@ -307,6 +326,7 @@ export const callingBillingService = {
       if (statusUpdate.count !== 1) {
         return tx.commercialCallAuthorization.findUnique({ where: { id: authorization.id } })
       }
+      await lockWalletForUpdate(tx, authorization.walletId)
       const wallet = await tx.commercialWallet.findUniqueOrThrow({ where: { id: authorization.walletId } })
       const updated = await tx.commercialWallet.update({
         where: { id: wallet.id },
@@ -385,6 +405,7 @@ export const callingBillingService = {
       if (statusUpdate.count !== 1) {
         return tx.commercialCallAuthorization.findUnique({ where: { id: authorization.id }, include: { rate: true } })
       }
+      await lockWalletForUpdate(tx, authorization.walletId)
       const wallet = await tx.commercialWallet.findUniqueOrThrow({ where: { id: authorization.walletId } })
       const billedSeconds = billableSeconds(durationSeconds, authorization.rate.minimumSeconds, authorization.rate.incrementSeconds)
       const additionalIncludedSeconds = Math.min(wallet.includedSeconds, Math.max(0, billedSeconds - authorization.heldIncludedSeconds))

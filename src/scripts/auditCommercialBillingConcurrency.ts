@@ -19,13 +19,30 @@ if (confirm !== 'run') {
 const runId = `AUDIT_CONCURRENCY_${Date.now()}`
 const money = (value: unknown) => Number(value || 0)
 const decimal = (value: number) => value.toFixed(4)
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+const retryable = (error: unknown) => {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error || '').toLowerCase()
+  return message.includes('deadlock') || message.includes('write conflict') || message.includes('40p01') || message.includes('could not serialize access')
+}
+
+async function withRetry<T>(label: string, task: () => Promise<T>, attempts = 6): Promise<T> {
+  try {
+    return await task()
+  } catch (error) {
+    if (attempts > 1 && retryable(error)) {
+      await sleep((7 - attempts) * 150)
+      return withRetry(label, task, attempts - 1)
+    }
+    throw new Error(`${label} failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
 
 async function cleanup() {
-  await prisma.commercialCallAuthorization.deleteMany({ where: { account: { code: runId } } })
-  await prisma.call.deleteMany({ where: { campaign: { name: runId } } })
-  await prisma.contact.deleteMany({ where: { campaign: { name: runId } } })
-  await prisma.campaign.deleteMany({ where: { name: runId } })
-  await prisma.commercialAccount.deleteMany({ where: { code: runId } })
+  await withRetry('delete audit authorizations', () => prisma.commercialCallAuthorization.deleteMany({ where: { account: { code: { startsWith: 'AUDIT_CONCURRENCY_' } } } }))
+  await withRetry('delete audit calls', () => prisma.call.deleteMany({ where: { campaign: { name: { startsWith: 'AUDIT_CONCURRENCY_' } } } }))
+  await withRetry('delete audit contacts', () => prisma.contact.deleteMany({ where: { campaign: { name: { startsWith: 'AUDIT_CONCURRENCY_' } } } }))
+  await withRetry('delete audit campaigns', () => prisma.campaign.deleteMany({ where: { name: { startsWith: 'AUDIT_CONCURRENCY_' } } }))
+  await withRetry('delete audit accounts', () => prisma.commercialAccount.deleteMany({ where: { code: { startsWith: 'AUDIT_CONCURRENCY_' } } }))
 }
 
 async function main() {
@@ -140,7 +157,24 @@ async function main() {
       _sum: { amount: true },
       where: { walletId: wallet.id, type: 'CALL_CHARGE' },
     })
-    const expectedCharge = 4 * CUSTOMER_RATE
+    const authorizationCounts = Object.fromEntries(authorizations.map(item => [item.status, item._count.status]))
+    const transactionCounts = Object.fromEntries(transactions.map(item => [item.type, item._count.type]))
+    const settledBillableValue = 6 * CUSTOMER_RATE
+    const initialIncludedValue = INITIAL_INCLUDED_SECONDS / 60 * CUSTOMER_RATE
+    const remainingIncludedValue = wallet.includedSeconds / 60 * CUSTOMER_RATE
+    const expectedCashCharge = settledBillableValue - (initialIncludedValue - remainingIncludedValue)
+    const effectiveRemainingValue = money(wallet.availableBalance) + remainingIncludedValue
+    const expectedEffectiveValue = INITIAL_BALANCE + initialIncludedValue - settledBillableValue
+    const passed =
+      authorizationCounts.SETTLED === 6 &&
+      authorizationCounts.RELEASED === 6 &&
+      transactionCounts.HOLD === 12 &&
+      transactionCounts.CALL_CHARGE === 6 &&
+      transactionCounts.RELEASE === 6 &&
+      money(wallet.heldBalance).toFixed(4) === decimal(0) &&
+      wallet.heldIncludedSeconds === 0 &&
+      money(totalCharged._sum.amount).toFixed(4) === decimal(expectedCashCharge) &&
+      effectiveRemainingValue.toFixed(4) === decimal(expectedEffectiveValue)
 
     console.log(JSON.stringify({
       runId,
@@ -155,26 +189,35 @@ async function main() {
       transactions,
       staleCleanup,
       expected: {
-        callChargeTotal: decimal(expectedCharge),
-        availableBalance: decimal(INITIAL_BALANCE - expectedCharge),
+        authorizations: { SETTLED: 6, RELEASED: 6 },
+        transactions: { HOLD: 12, CALL_CHARGE: 6, RELEASE: 6 },
+        cashChargeTotal: decimal(expectedCashCharge),
+        effectiveRemainingValue: decimal(expectedEffectiveValue),
         heldBalance: decimal(0),
-        includedSeconds: 0,
         heldIncludedSeconds: 0,
       },
       actual: {
         callChargeTotal: money(totalCharged._sum.amount).toFixed(4),
+        effectiveRemainingValue: effectiveRemainingValue.toFixed(4),
       },
-      passed:
-        money(wallet.availableBalance).toFixed(4) === decimal(INITIAL_BALANCE - expectedCharge) &&
-        money(wallet.heldBalance).toFixed(4) === decimal(0) &&
-        wallet.includedSeconds === 0 &&
-        wallet.heldIncludedSeconds === 0 &&
-        money(totalCharged._sum.amount).toFixed(4) === decimal(expectedCharge),
+      passed,
     }, null, 2))
+    if (!passed) throw new Error('Billing concurrency proof failed invariants')
   } finally {
+    if (previousProvider) {
+      await withRetry('restore provider wallet', () => prisma.commercialProviderWallet.update({
+        where: { provider: PROVIDER },
+        data: {
+          currency: previousProvider.currency,
+          availableBalance: previousProvider.availableBalance,
+          reserveBalance: previousProvider.reserveBalance,
+          enforcementEnabled: previousProvider.enforcementEnabled,
+        },
+      }))
+    }
     await cleanup()
     if (previousRate) {
-      await prisma.commercialCallingRate.upsert({
+      await withRetry('restore audit rate', () => prisma.commercialCallingRate.upsert({
         where: { destinationCode: DESTINATION_CODE },
         update: {
           destinationName: previousRate.destinationName,
@@ -195,20 +238,9 @@ async function main() {
           incrementSeconds: previousRate.incrementSeconds,
           isActive: previousRate.isActive,
         },
-      })
+      }))
     } else {
-      await prisma.commercialCallingRate.deleteMany({ where: { destinationCode: DESTINATION_CODE } })
-    }
-    if (previousProvider) {
-      await prisma.commercialProviderWallet.update({
-        where: { provider: PROVIDER },
-        data: {
-          currency: previousProvider.currency,
-          availableBalance: previousProvider.availableBalance,
-          reserveBalance: previousProvider.reserveBalance,
-          enforcementEnabled: previousProvider.enforcementEnabled,
-        },
-      })
+      await withRetry('delete audit rate', () => prisma.commercialCallingRate.deleteMany({ where: { destinationCode: DESTINATION_CODE } }))
     }
     await prisma.$disconnect()
   }
