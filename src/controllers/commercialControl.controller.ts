@@ -289,6 +289,18 @@ export const topUpWallet = async (req: AuthRequest, res: Response, next: NextFun
   }
 }
 
+export const alignWalletCurrency = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    return sendSuccess(
+      res,
+      await commercialControlService.alignWalletCurrency(idParam(req.params.accountId), req.body || {}, req.user),
+      'Wallet currency aligned for provider billing',
+    )
+  } catch (err) {
+    return next(err)
+  }
+}
+
 export const updateThresholds = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     return sendSuccess(

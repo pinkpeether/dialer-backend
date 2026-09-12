@@ -789,6 +789,73 @@ export const commercialControlService = {
     return result
   },
 
+  async alignWalletCurrency(accountId: number | string, input: { currency?: string; reference?: string; description?: string } = {}, actor?: Actor) {
+    const account = await getAccountOrDefault(accountId)
+    const targetCurrency = normalizeCurrency(input.currency || 'EUR')
+
+    const result = await prisma.$transaction(async tx => {
+      const wallet = await tx.commercialWallet.upsert({
+        where: { accountId: account.id },
+        update: {},
+        create: {
+          accountId: account.id,
+          currency: account.currency,
+          availableBalance: '0.0000',
+          heldBalance: '0.0000',
+          creditLimit: '0.0000',
+        },
+      })
+
+      if (wallet.currency === targetCurrency && account.currency === targetCurrency) {
+        return { wallet, transaction: null, changed: false }
+      }
+
+      if (toMoney(wallet.heldBalance) > 0 || wallet.heldIncludedSeconds > 0) {
+        throw new AppError('Cannot change wallet currency while funds or included minutes are held by active calls.', 409)
+      }
+
+      const updatedAccount = await tx.commercialAccount.update({
+        where: { id: account.id },
+        data: { currency: targetCurrency },
+      })
+      const updatedWallet = await tx.commercialWallet.update({
+        where: { id: wallet.id },
+        data: { currency: targetCurrency },
+      })
+
+      const transaction = await tx.commercialWalletTransaction.create({
+        data: {
+          walletId: updatedWallet.id,
+          type: 'ADJUSTMENT',
+          direction: 'CREDIT',
+          amount: '0.0000',
+          balanceAfter: updatedWallet.availableBalance,
+          referenceType: 'WALLET_CURRENCY_ALIGNMENT',
+          referenceId: input.reference || `account:${account.id}`,
+          description: input.description || `Wallet currency aligned from ${wallet.currency} to ${targetCurrency} for provider billing`,
+          metadata: {
+            previousAccountCurrency: account.currency,
+            previousWalletCurrency: wallet.currency,
+            nextCurrency: targetCurrency,
+            approvedByUserId: actor?.id || null,
+            approvedByEmail: actor?.email || null,
+          },
+          approvedByUserId: actor?.id || null,
+        },
+      })
+
+      return { account: updatedAccount, wallet: updatedWallet, transaction, changed: true }
+    })
+
+    await audit(actor, 'COMMERCIAL_WALLET_CURRENCY_ALIGNED', 'CommercialAccount', account.id, {
+      accountId: account.id,
+      targetCurrency,
+      changed: result.changed,
+    })
+
+    return result
+  },
+
   async updateThresholds(accountId: number | string, input: ThresholdInput, actor?: Actor) {
     const account = await getAccountOrDefault(accountId)
     const updated = await prisma.commercialAccount.update({
