@@ -29,7 +29,6 @@ type FreepbxCallEventInput = {
 }
 
 const text = (value: unknown) => String(value || '').trim()
-const digits = (value: unknown) => text(value).replace(/\D/g, '')
 
 const parseDate = (value: unknown) => {
   const raw = text(value)
@@ -46,13 +45,6 @@ const parseNumber = (value: unknown) => {
 const parseDuration = (input: FreepbxCallEventInput) => {
   const preferred = parseNumber(input.billsec) ?? parseNumber(input.durationSeconds) ?? parseNumber(input.duration)
   return preferred === undefined ? undefined : Math.max(0, Math.round(preferred))
-}
-
-const numbersMatch = (left: unknown, right: unknown) => {
-  const a = digits(left)
-  const b = digits(right)
-  if (!a || !b) return false
-  return a.includes(b) || b.includes(a) || a.slice(-10) === b.slice(-10)
 }
 
 const normalizeDisposition = (value: unknown, durationSeconds?: number): CallDisposition | null => {
@@ -89,38 +81,25 @@ const findCall = async (input: FreepbxCallEventInput) => {
   ].filter(Boolean)
 
   for (const ref of providerRefs) {
-    const call = await prisma.call.findFirst({
+    const calls = await prisma.call.findMany({
       where: {
         OR: [
           { providerCallId: ref },
-          { providerCallId: { contains: ref } },
           { recordingSid: ref },
         ],
       },
       include: { campaign: { select: { commercialAccountId: true } } },
       orderBy: { startedAt: 'desc' },
+      take: 2,
     })
-    if (call) return { call, matchStrategy: 'provider-reference' }
+
+    if (calls.length > 1) {
+      throw new AppError('Ambiguous FreePBX call event provider reference; exact callId is required.', 409)
+    }
+    if (calls[0]) return { call: calls[0], matchStrategy: 'provider-reference-exact' }
   }
 
-  const target = text(input.dst || input.destination || input.src || input.source)
-  const center = parseDate(input.startedAt || input.start || input.answeredAt || input.answer || input.endedAt || input.end) || new Date()
-  const from = new Date(center.getTime() - 2 * 60 * 60 * 1000)
-  const to = new Date(center.getTime() + 30 * 60 * 1000)
-
-  const candidates = await prisma.call.findMany({
-    where: {
-      startedAt: { gte: from, lte: to },
-      status: { in: ['INITIATED', 'RINGING', 'ANSWERED', 'NO_ANSWER', 'COMPLETED'] },
-    },
-    include: { campaign: { select: { commercialAccountId: true } } },
-    orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
-    take: 150,
-  })
-
-  const call = candidates.find(candidate => numbersMatch(candidate.remoteNumber, target))
-  if (!call) throw new AppError('No matching call found for FreePBX call event', 404)
-  return { call, matchStrategy: 'number-time-window' }
+  throw new AppError('FreePBX call event requires an exact PTDT callId or previously persisted provider reference. Number/time matching is disabled for billing safety.', 422)
 }
 
 const emitCallEnded = (call: { id: number; agentId: number | null; remoteNumber: string | null; duration: number | null; status: string; campaign?: { commercialAccountId: number | null } | null }) => {
@@ -171,9 +150,9 @@ export const ingestFreepbxCallEvent = async (input: FreepbxCallEventInput) => {
 
   if (endedAt || status === 'COMPLETED' || status === 'NO_ANSWER') {
     if (durationSeconds && durationSeconds > 0) {
-      await callingBillingService.settleCallAuthorization(updated.id, durationSeconds).catch(() => undefined)
+      await callingBillingService.settleCallAuthorization(updated.id, durationSeconds)
     } else {
-      await callingBillingService.releaseCallAuthorization(updated.id).catch(() => undefined)
+      await callingBillingService.releaseCallAuthorization(updated.id)
     }
     emitCallEnded(updated)
   }
