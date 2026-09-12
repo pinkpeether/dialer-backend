@@ -30,7 +30,7 @@ Last updated: 2026-09-12
 | AUD-11 | P1 | Logout/session/SIP cleanup | Partial | Frontend session cleanup and SIP clearing hardened; backend session-version revocation remains pending. Commits `f0ab3e9`, `13f2512`. |
 | AUD-12 | P1 | Prisma migration replay | Partial | Runtime enum migration sync added. Full empty-database migration replay and schema drift proof still needed. Commit `c065aaf`. |
 | AUD-13 | P1 | Live AI/notifications boundaries | Partial | Alerts scoped by commercial account. Live AI and all notification recipient routes still need full two-tenant proof. Commit `4987e95`. |
-| AUD-14 | P1 | Authoritative call timing/billing | Partial | FreePBX call-event ingest exists and writes connected/end/duration. CDR matching is now strict; settlement errors propagate. Needs real PBX hook configured with exact `callId`. Commits `dee757f`, current batch. |
+| AUD-14 | P1 | Authoritative call timing/billing | Partial | FreePBX call-event ingest exists and writes connected/end/duration. CDR matching is now strict; settlement errors propagate. Live PBX hook verified on call `618`: `COMPLETED`, `ANSWERED`, `duration=18`, connected/end timestamps written. Needs customer-account billing settlement proof. Commits `dee757f`, `b6db54d`, `76f5126`. |
 | AUD-15 | P2 | SIP registration/DTMF ownership states | Partial | Backend now requires recent SIP presence for user outbound calls. SIP.js registerer/DTMF protocol correctness still needs PBX integration testing. Commit `97ccd88`. |
 | AUD-16 | P2 | Frontend stale caches/identity data | Partial | Logout/session cache cleanup improved. Cache freshness model remains broader P2 work. Commit `f0ab3e9`. |
 | AUD-17 | P2 | Campaign process-local execution | Pending | Durable queue, campaign leases, cancellation generations, and multi-instance tests not yet implemented. |
@@ -46,7 +46,7 @@ Last updated: 2026-09-12
 The branch has reduced the highest-risk P0/P1 surface, but the audit cannot be marked fully closed yet. Before promoting this branch as fully remediated, collect evidence for:
 
 1. Two-tenant denial tests for Pro APIs, sockets, alerts, recordings, live AI, exports, and mutations.
-2. FreePBX CDR/CEL/webhook configured to submit exact PTDT `callId` plus provider identifiers.
+2. Customer-account FreePBX CDR/CEL/webhook proof showing exact PTDT `callId`, billsec, and settled/released commercial authorization.
 3. Real PBX tests for originate, answer, remote hangup, local hangup, DTMF, transfer, hold failure, and concurrent same-trunk calls.
 4. PostgreSQL parallel billing tests for hold, release, and exactly-once settlement.
 5. Empty-database migration replay against `schema.prisma`, plus existing-database backup/restore rehearsal.
@@ -54,7 +54,7 @@ The branch has reduced the highest-risk P0/P1 surface, but the audit cannot be m
 
 ## Next Batch
 
-1. Configure FreePBX/Asterisk event hook to post exact `callId` from `PTDT_CALL_ID`.
+1. Run one Customer Admin/Supervisor Dynamic Caller ID call and verify billing authorization settlement from FreePBX `billsec`.
 2. Persist exact PBX channel/uniqueid/linkedid mappings from events.
 3. Bind hangup, transfer, and DTMF to the verified call mapping only.
 4. Add automated two-tenant and billing-concurrency tests.
