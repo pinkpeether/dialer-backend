@@ -17,7 +17,7 @@ const getRange = (req: AuthRequest) => ({
 
 export const overview = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await ReportsAnalyticsProService.getOverview(getRange(req))
+    const result = await ReportsAnalyticsProService.getOverview(getRange(req), req.user)
     return sendSuccess(res, result, 'Reports overview fetched')
   } catch (err) {
     return next(err)
@@ -29,7 +29,7 @@ export const agentPerformance = async (req: AuthRequest, res: Response, next: Ne
     const result = await ReportsAnalyticsProService.getAgentPerformance({
       ...getRange(req),
       period: req.query.period ? String(req.query.period) : undefined,
-    })
+    }, req.user)
     return sendSuccess(res, result, 'Agent performance report fetched')
   } catch (err) {
     return next(err)
@@ -38,7 +38,7 @@ export const agentPerformance = async (req: AuthRequest, res: Response, next: Ne
 
 export const hourlyAnalytics = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await ReportsAnalyticsProService.getHourlyAnalytics(getRange(req))
+    const result = await ReportsAnalyticsProService.getHourlyAnalytics(getRange(req), req.user)
     return sendSuccess(res, result, 'Hourly analytics fetched')
   } catch (err) {
     return next(err)
@@ -47,7 +47,7 @@ export const hourlyAnalytics = async (req: AuthRequest, res: Response, next: Nex
 
 export const conversionReport = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await ReportsAnalyticsProService.getConversionReport(getRange(req))
+    const result = await ReportsAnalyticsProService.getConversionReport(getRange(req), req.user)
     return sendSuccess(res, result, 'Conversion report fetched')
   } catch (err) {
     return next(err)
@@ -56,7 +56,7 @@ export const conversionReport = async (req: AuthRequest, res: Response, next: Ne
 
 export const durationAnalysis = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await ReportsAnalyticsProService.getDurationAnalysis(getRange(req))
+    const result = await ReportsAnalyticsProService.getDurationAnalysis(getRange(req), req.user)
     return sendSuccess(res, result, 'Duration analysis fetched')
   } catch (err) {
     return next(err)
@@ -65,7 +65,7 @@ export const durationAnalysis = async (req: AuthRequest, res: Response, next: Ne
 
 export const missedCallReport = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await ReportsAnalyticsProService.getMissedCallReport(getRange(req))
+    const result = await ReportsAnalyticsProService.getMissedCallReport(getRange(req), req.user)
     return sendSuccess(res, result, 'Missed-call report fetched')
   } catch (err) {
     return next(err)
@@ -74,7 +74,7 @@ export const missedCallReport = async (req: AuthRequest, res: Response, next: Ne
 
 export const dailySummaryEmailPreview = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await ReportsAnalyticsProService.buildDailySummaryEmail(getRange(req))
+    const result = await ReportsAnalyticsProService.buildDailySummaryEmail(getRange(req), req.user)
     return sendSuccess(res, result, 'Daily summary email preview generated')
   } catch (err) {
     return next(err)
@@ -83,7 +83,7 @@ export const dailySummaryEmailPreview = async (req: AuthRequest, res: Response, 
 
 export const sendDailySummaryEmail = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await ReportsAnalyticsProService.sendDailySummaryEmail(getRange(req))
+    const result = await ReportsAnalyticsProService.sendDailySummaryEmail(getRange(req), req.user)
     return sendSuccess(res, result, 'Daily summary email send evaluated')
   } catch (err) {
     return next(err)
@@ -97,7 +97,7 @@ export const campaignPdf = async (req: AuthRequest, res: Response, next: NextFun
       return sendError(res, 'Valid campaignId is required', 400)
     }
 
-    const result = await ReportsAnalyticsProService.buildCampaignPdf(campaignId, getRange(req))
+    const result = await ReportsAnalyticsProService.buildCampaignPdf(campaignId, getRange(req), req.user)
     res.setHeader('Content-Type', 'application/pdf')
     res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`)
     return res.send(result.buffer)
@@ -108,7 +108,7 @@ export const campaignPdf = async (req: AuthRequest, res: Response, next: NextFun
 
 export const exportCsv = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const csv = await ReportsAnalyticsProService.exportReportCsv(getRange(req))
+    const csv = await ReportsAnalyticsProService.exportReportCsv(getRange(req), req.user)
     res.setHeader('Content-Type', 'text/csv; charset=utf-8')
     res.setHeader('Content-Disposition', 'attachment; filename="ptdt-reports-summary.csv"')
     return res.send(csv)

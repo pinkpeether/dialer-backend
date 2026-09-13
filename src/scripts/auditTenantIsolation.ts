@@ -4,6 +4,9 @@ import * as CallIntelligenceService from '../services/callIntelligence.service'
 import * as LiveAiService from '../services/liveAi.service'
 import * as AlertsService from '../services/notificationsAlertsPro.service'
 import * as AiCallLogService from '../services/aiCallLog.service'
+import * as ReportsAnalyticsProService from '../services/reportsAnalyticsPro.service'
+import * as AgentManagementService from '../services/agentManagement.service'
+import * as RecordingStorageProService from '../services/recordingStoragePro.service'
 import type { ScopeActor } from '../services/commercialScope.service'
 
 const confirm = String(process.env.AUDIT_TENANT_ISOLATION_CONFIRM || '').trim().toLowerCase()
@@ -16,6 +19,13 @@ if (confirm !== 'run') {
 const runId = `AUDIT_TENANT_${Date.now()}`
 const markerA = `${runId}_A_ONLY`
 const markerB = `${runId}_B_ONLY`
+const auditStartedAt = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000)
+const auditConnectedAt = new Date(auditStartedAt.getTime() + 2000)
+const auditEndedAt = new Date(auditStartedAt.getTime() + 62000)
+const auditRange = {
+  from: new Date(auditStartedAt.getTime() - 60 * 60 * 1000).toISOString(),
+  to: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+}
 
 const assert = (condition: unknown, message: string) => {
   if (!condition) throw new Error(message)
@@ -107,6 +117,10 @@ async function createTenant(suffix: 'A' | 'B') {
       disposition: 'ANSWERED',
       duration: 60,
       recordingUrl: `https://recordings.audit.local/${suffix}.wav`,
+      startedAt: auditStartedAt,
+      connectedAt: auditConnectedAt,
+      endedAt: auditEndedAt,
+      createdAt: auditStartedAt,
     },
   })
   await prisma.aiCallLog.create({
@@ -150,6 +164,38 @@ async function main() {
       tenantBDenied: await expectDenied('call intelligence tenant A to tenant B', () => CallIntelligenceService.getCallIntelligence(tenantA.call.id, tenantB.actor)),
     }
 
+    const reportsOverviewB = await ReportsAnalyticsProService.getOverview(auditRange, tenantB.actor)
+    const conversionReportB = await ReportsAnalyticsProService.getConversionReport(auditRange, tenantB.actor)
+    const reportCsvB = await ReportsAnalyticsProService.exportReportCsv(auditRange, tenantB.actor)
+    assert(reportsOverviewB.kpis.totalCalls === 1, 'Reports overview did not stay inside tenant B data')
+    assert(conversionReportB.campaigns.length === 1 && conversionReportB.campaigns[0].campaignId === tenantB.campaign.id, 'Conversion report leaked or missed tenant data')
+    assert(reportCsvB.includes('"Total Calls","1"'), 'Report CSV did not stay inside tenant B data')
+    evidence.reportsAnalytics = {
+      tenantBTotalCalls: reportsOverviewB.kpis.totalCalls,
+      tenantBCampaignIds: conversionReportB.campaigns.map(item => item.campaignId),
+      tenantBDeniedCampaignPdf: await expectDenied('reports campaign PDF tenant A to tenant B', () => ReportsAnalyticsProService.buildCampaignPdf(tenantA.campaign.id, auditRange, tenantB.actor)),
+    }
+
+    await AgentManagementService.startAgentSession(tenantA.user.id, tenantA.user.email, `${runId}_fingerprint_A`, 'audit-agent', '127.0.0.1')
+    await AgentManagementService.startAgentSession(tenantB.user.id, tenantB.user.email, `${runId}_fingerprint_B`, 'audit-agent', '127.0.0.1')
+    const agentQueryRange = { from: auditRange.from, to: auditRange.to }
+    const agentOverviewB = await AgentManagementService.getAgentOverview(agentQueryRange, tenantB.actor)
+    const agentLeaderboardB = await AgentManagementService.getLeaderboard(agentQueryRange, tenantB.actor)
+    const agentSessionsB = await AgentManagementService.listAgentSessions(tenantB.actor)
+    const shiftPlanB = await AgentManagementService.getShiftPlan({}, tenantB.actor)
+    assert(agentOverviewB.totals.totalAgents === 1, 'Agent overview leaked tenant A agent to tenant B')
+    assert(agentLeaderboardB.leaderboard.length === 1 && agentLeaderboardB.leaderboard[0].agentId === tenantB.user.id, 'Agent leaderboard leaked tenant A agent to tenant B')
+    assert(agentSessionsB.sessions.length === 1 && agentSessionsB.sessions[0].agentId === tenantB.user.id, 'Agent sessions leaked tenant A session to tenant B')
+    assert(shiftPlanB.shifts.length === 1 && shiftPlanB.shifts[0].agentId === tenantB.user.id, 'Shift plan leaked tenant A agent to tenant B')
+    evidence.agentManagement = {
+      tenantBTotalAgents: agentOverviewB.totals.totalAgents,
+      tenantBLeaderboardAgentIds: agentLeaderboardB.leaderboard.map(item => item.agentId),
+      tenantBSessionAgentIds: agentSessionsB.sessions.map(item => item.agentId),
+      tenantBDeniedAgentPerformance: await expectDenied('agent performance tenant A agent to tenant B', () => AgentManagementService.getAgentPerformance({ ...agentQueryRange, agentId: tenantA.user.id }, tenantB.actor)),
+      tenantBDeniedShiftUpdate: await expectDenied('shift update tenant A agent to tenant B', () => AgentManagementService.updateShiftPreference(tenantA.user.id, { startTime: '10:00', endTime: '18:00' }, tenantB.actor)),
+      tenantBDeniedSessionEnd: await expectDenied('end session tenant A agent to tenant B', () => AgentManagementService.endAgentSession(tenantA.user.id, tenantB.actor)),
+    }
+
     await LiveAiService.startLiveAiSession(tenantA.call.id, tenantA.actor)
     const liveSessionsForB = await LiveAiService.listLiveAiSessions(tenantB.actor)
     evidence.liveAi = {
@@ -157,6 +203,18 @@ async function main() {
       tenantBDeniedSession: await expectDenied('live ai tenant A session to tenant B', () => LiveAiService.getLiveAiSession(tenantA.call.id, tenantB.actor)),
     }
     assert((evidence.liveAi as any).tenantBVisibleTenantASessions === 0, 'Live AI list leaked tenant A session to tenant B')
+
+    const recordingsB = await RecordingStorageProService.searchRecordings({ limit: 50 }, tenantB.actor)
+    const recordingsCsvB = await RecordingStorageProService.exportRecordingSearchCsv({ limit: 50 }, tenantB.actor)
+    const retentionPreviewB = await RecordingStorageProService.previewRetentionPurge({ retentionDays: 0 }, tenantB.actor)
+    assert(recordingsB.items.length === 1 && recordingsB.items[0].callId === tenantB.call.id, 'Recording search leaked or missed tenant data')
+    assert(recordingsCsvB.includes(String(tenantB.call.id)) && !recordingsCsvB.includes(String(tenantA.call.id)), 'Recording CSV leaked tenant A call to tenant B')
+    assert(retentionPreviewB.sample.every(item => item.id === tenantB.call.id), 'Retention preview leaked tenant A call to tenant B')
+    evidence.recordings = {
+      tenantBRecordingCallIds: recordingsB.items.map(item => item.callId),
+      tenantBRetentionSampleCallIds: retentionPreviewB.sample.map(item => item.id),
+      tenantBDeniedDownload: await expectDenied('recording download tenant A to tenant B', () => RecordingStorageProService.getRecordingDownload(tenantA.call.id, tenantB.actor)),
+    }
 
     const alertA = await AlertsService.createManualAlert({
       title: `${markerA} Alert`,

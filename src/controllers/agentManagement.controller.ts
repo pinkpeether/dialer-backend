@@ -12,7 +12,7 @@ const getIpAddress = (req: AuthRequest) => {
 
 export const overview = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await AgentManagementService.getAgentOverview(req.query)
+    const result = await AgentManagementService.getAgentOverview(req.query, req.user)
     return sendSuccess(res, result, 'Advanced agent overview fetched')
   } catch (err) {
     return next(err)
@@ -21,7 +21,7 @@ export const overview = async (req: AuthRequest, res: Response, next: NextFuncti
 
 export const leaderboard = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await AgentManagementService.getLeaderboard(req.query)
+    const result = await AgentManagementService.getLeaderboard(req.query, req.user)
     return sendSuccess(res, result, 'Agent leaderboard fetched')
   } catch (err) {
     return next(err)
@@ -30,7 +30,7 @@ export const leaderboard = async (req: AuthRequest, res: Response, next: NextFun
 
 export const performance = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await AgentManagementService.getAgentPerformance(req.query)
+    const result = await AgentManagementService.getAgentPerformance(req.query, req.user)
     return sendSuccess(res, result, 'Agent performance report fetched')
   } catch (err) {
     return next(err)
@@ -39,7 +39,7 @@ export const performance = async (req: AuthRequest, res: Response, next: NextFun
 
 export const shifts = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await AgentManagementService.getShiftPlan(req.query)
+    const result = await AgentManagementService.getShiftPlan(req.query, req.user)
     return sendSuccess(res, result, 'Agent shift plan fetched')
   } catch (err) {
     return next(err)
@@ -51,6 +51,7 @@ export const updateShift = async (req: AuthRequest, res: Response, next: NextFun
     const result = await AgentManagementService.updateShiftPreference(
       Number(req.params.agentId),
       req.body,
+      req.user,
     )
     return sendSuccess(res, result, 'Agent shift preference updated')
   } catch (err) {
@@ -58,9 +59,9 @@ export const updateShift = async (req: AuthRequest, res: Response, next: NextFun
   }
 }
 
-export const breakReminders = async (_req: AuthRequest, res: Response, next: NextFunction) => {
+export const breakReminders = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await AgentManagementService.getBreakReminders()
+    const result = await AgentManagementService.getBreakReminders(req.user)
     return sendSuccess(res, result, 'Agent break reminders fetched')
   } catch (err) {
     return next(err)
@@ -84,7 +85,7 @@ export const startSession = async (req: AuthRequest, res: Response, next: NextFu
 
 export const endSession = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await AgentManagementService.endAgentSession(req.user!.id)
+    const result = await AgentManagementService.endAgentSession(req.user!.id, req.user)
     return sendSuccess(res, result, 'Agent session ended')
   } catch (err) {
     return next(err)
@@ -93,16 +94,16 @@ export const endSession = async (req: AuthRequest, res: Response, next: NextFunc
 
 export const forceEndSession = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await AgentManagementService.endAgentSession(Number(req.params.agentId))
+    const result = await AgentManagementService.endAgentSession(Number(req.params.agentId), req.user)
     return sendSuccess(res, result, 'Agent session terminated')
   } catch (err) {
     return next(err)
   }
 }
 
-export const sessions = async (_req: AuthRequest, res: Response, next: NextFunction) => {
+export const sessions = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await AgentManagementService.listAgentSessions()
+    const result = await AgentManagementService.listAgentSessions(req.user)
     return sendSuccess(res, result, 'Agent sessions fetched')
   } catch (err) {
     return next(err)

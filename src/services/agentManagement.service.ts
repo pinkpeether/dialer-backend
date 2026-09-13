@@ -1,5 +1,6 @@
 import prisma from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
+import * as Scope from './commercialScope.service'
 
 type DateRange = {
   from: Date
@@ -123,9 +124,11 @@ const scoreAgent = (agent: {
   }
 }
 
-const getAgentUsers = async () => {
+const getAgentUsers = async (actor?: Scope.ScopeActor) => {
+  const scopedWhere = await Scope.userScopeWhere(actor)
   return prisma.user.findMany({
     where: {
+      ...scopedWhere,
       role: { in: ['AGENT', 'SUPERVISOR', 'ADMIN'] },
       isActive: true,
     },
@@ -146,12 +149,32 @@ const getAgentUsers = async () => {
   })
 }
 
-export const getAgentOverview = async (query: { from?: unknown; to?: unknown; days?: unknown }) => {
+const assertAgentAccess = async (agentId: number, actor?: Scope.ScopeActor) => {
+  if (!Number.isFinite(agentId)) throw new AppError('Invalid agent id', 400)
+  const agent = await prisma.user.findFirst({
+    where: { id: agentId, ...(await Scope.userScopeWhere(actor)) },
+    select: { id: true, name: true, email: true, agentCode: true, status: true },
+  })
+  if (!agent) throw new AppError('Agent not found for this commercial account', 404)
+  return agent
+}
+
+const visibleSessionAgentIds = async (actor?: Scope.ScopeActor) => {
+  const agents = await prisma.user.findMany({
+    where: await Scope.userScopeWhere(actor),
+    select: { id: true },
+  })
+  return new Set(agents.map(agent => agent.id))
+}
+
+export const getAgentOverview = async (query: { from?: unknown; to?: unknown; days?: unknown }, actor?: Scope.ScopeActor) => {
   const range = parseDateRange(query)
-  const agents = await getAgentUsers()
+  const agents = await getAgentUsers(actor)
+  const callScope = await Scope.callScopeWhere(actor)
 
   const calls = await prisma.call.findMany({
     where: {
+      ...callScope,
       agentId: { in: agents.map(agent => agent.id) },
       startedAt: {
         gte: range.from,
@@ -174,7 +197,8 @@ export const getAgentOverview = async (query: { from?: unknown; to?: unknown; da
   const readyAgents = agents.filter(agent => agent.status === 'READY').length
   const busyAgents = agents.filter(agent => agent.status === 'BUSY').length
   const offlineAgents = agents.filter(agent => agent.status === 'OFFLINE').length
-  const activeSessionCount = activeSessions.size
+  const agentIdSet = new Set(agents.map(agent => agent.id))
+  const activeSessionCount = Array.from(activeSessions.values()).filter(session => agentIdSet.has(session.agentId)).length
   const totalCalls = calls.length
   const answeredCalls = calls.filter(call =>
     ['ANSWERED', 'CONTACTED', 'DONE', 'SALE', 'COMPLETED'].includes(String(call.disposition || '').toUpperCase())
@@ -205,13 +229,15 @@ export const getLeaderboard = async (query: {
   to?: unknown
   days?: unknown
   limit?: unknown
-}) => {
+}, actor?: Scope.ScopeActor) => {
   const range = parseDateRange(query)
   const limit = Math.max(1, Math.min(100, Number(query.limit || 20)))
-  const agents = await getAgentUsers()
+  const agents = await getAgentUsers(actor)
+  const callScope = await Scope.callScopeWhere(actor)
 
   const calls = await prisma.call.findMany({
     where: {
+      ...callScope,
       agentId: { in: agents.map(agent => agent.id) },
       startedAt: {
         gte: range.from,
@@ -254,11 +280,12 @@ export const getAgentPerformance = async (query: {
   to?: unknown
   days?: unknown
   agentId?: unknown
-}) => {
+}, actor?: Scope.ScopeActor) => {
   const range = parseDateRange(query)
   const agentId = query.agentId ? Number(query.agentId) : null
 
-  const agents = await getAgentUsers()
+  const agents = await getAgentUsers(actor)
+  const callScope = await Scope.callScopeWhere(actor)
   const filteredAgents = agentId
     ? agents.filter(agent => agent.id === agentId)
     : agents
@@ -269,6 +296,7 @@ export const getAgentPerformance = async (query: {
 
   const calls = await prisma.call.findMany({
     where: {
+      ...callScope,
       agentId: { in: filteredAgents.map(agent => agent.id) },
       startedAt: {
         gte: range.from,
@@ -313,11 +341,11 @@ export const getAgentPerformance = async (query: {
   }
 }
 
-export const getShiftPlan = async (query: { date?: unknown }) => {
+export const getShiftPlan = async (query: { date?: unknown }, actor?: Scope.ScopeActor) => {
   const date = query.date ? new Date(String(query.date)) : new Date()
   if (Number.isNaN(date.getTime())) throw new AppError('Invalid shift date', 400)
 
-  const agents = await getAgentUsers()
+  const agents = await getAgentUsers(actor)
 
   return {
     generatedAt: new Date().toISOString(),
@@ -354,13 +382,10 @@ export const updateShiftPreference = async (
     endTime?: unknown
     timezone?: unknown
     breakEveryMinutes?: unknown
-  }
+  },
+  actor?: Scope.ScopeActor,
 ) => {
-  const agent = await prisma.user.findUnique({
-    where: { id: agentId },
-    select: { id: true, name: true, email: true, agentCode: true, status: true },
-  })
-  if (!agent) throw new AppError('Agent not found', 404)
+  const agent = await assertAgentAccess(agentId, actor)
 
   const startTime = String(payload.startTime || '09:00')
   const endTime = String(payload.endTime || '17:00')
@@ -422,8 +447,8 @@ const buildBreakReminders = (agents: Awaited<ReturnType<typeof getAgentUsers>>) 
     .filter(reminder => reminder.shouldNotify)
 }
 
-export const getBreakReminders = async () => {
-  const agents = await getAgentUsers()
+export const getBreakReminders = async (actor?: Scope.ScopeActor) => {
+  const agents = await getAgentUsers(actor)
   return {
     generatedAt: new Date().toISOString(),
     reminders: buildBreakReminders(agents),
@@ -465,7 +490,8 @@ export const startAgentSession = async (
   }
 }
 
-export const endAgentSession = async (agentId: number) => {
+export const endAgentSession = async (agentId: number, actor?: Scope.ScopeActor) => {
+  await assertAgentAccess(agentId, actor)
   const existing = activeSessions.get(agentId)
   activeSessions.delete(agentId)
   return {
@@ -474,10 +500,11 @@ export const endAgentSession = async (agentId: number) => {
   }
 }
 
-export const listAgentSessions = async () => {
+export const listAgentSessions = async (actor?: Scope.ScopeActor) => {
+  const allowedAgentIds = await visibleSessionAgentIds(actor)
   return {
     generatedAt: new Date().toISOString(),
-    sessions: Array.from(activeSessions.values()).sort(
+    sessions: Array.from(activeSessions.values()).filter(session => allowedAgentIds.has(session.agentId)).sort(
       (a, b) => b.lastSeenAt.getTime() - a.lastSeenAt.getTime()
     ),
   }

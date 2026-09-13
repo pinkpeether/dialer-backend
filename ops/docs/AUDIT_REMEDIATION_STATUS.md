@@ -18,7 +18,7 @@ Last updated: 2026-09-13
 | Audit ID | Severity | Area | Current Status | Evidence / Notes |
 | --- | --- | --- | --- | --- |
 | AUD-01 | P0 | Public privileged registration | Fixed | Public registration now creates `AGENT` only; JWT secret fails closed. Commit `2199e7c`. |
-| AUD-02 | P1 | Pro feature tenant isolation | Partial | Legacy exports and Call Intelligence are now actor/account scoped. Guarded remote tenant-isolation proof passed on 2026-09-13: run `AUDIT_TENANT_1789241040555` covered export list denial, campaign export denial, Call Intelligence denial, Live AI denial, alerts denial, and AI call log denial. Full generated route matrix for every Pro read/export/mutation is still pending. Commits `f92f6b6`, `c9e79f1`. |
+| AUD-02 | P1 | Pro feature tenant isolation | Fixed | Pro tenant scoping now covers exports, Call Intelligence, reports analytics, agent management, Live AI, recordings, alerts, and AI call logs. Guarded remote two-tenant proof passed on 2026-09-13: run `AUDIT_TENANT_1789303873350` verified tenant B saw only its report/campaign/agent/session/recording data, denied tenant A campaign PDF, agent performance, shift update, session end, recording download, Live AI, alert acknowledgement, and AI call log access, and cleanup verification returned zero remaining audit accounts, memberships, users, campaigns, contacts, calls, and AI call logs. |
 | AUD-03 | P1 | WebSocket dashboard leakage | Partial | Dashboard sockets now use platform/account rooms. Needs live multi-tenant socket test evidence. Commit `2199e7c`. |
 | AUD-04 | P1 | Socket crash on malformed input | Fixed | Socket auth/status handling validates input and catches async failures. Commit `2199e7c`. |
 | AUD-05 | P1 | AMI destructive channel guessing | Partial | False-success control paths reduced, but exact PBX channel/linkedid binding is still required for full closure. Commit `33e6fb7`. |
@@ -29,7 +29,7 @@ Last updated: 2026-09-13
 | AUD-10 | P1 | Hold privacy | Fixed | Failed hold throws and keeps mic muted instead of reporting safe hold. Commit `f0ab3e9`. |
 | AUD-11 | P1 | Logout/session/SIP cleanup | Partial | Frontend session cleanup and SIP clearing hardened; backend session-version revocation remains pending. Commits `f0ab3e9`, `13f2512`. |
 | AUD-12 | P1 | Prisma migration replay | Partial | Runtime enum migration sync added. Full empty-database migration replay and schema drift proof still needed. Commit `c065aaf`. |
-| AUD-13 | P1 | Live AI/notifications boundaries | Fixed | Live AI sessions, alert visibility/acknowledgement, and AI call logs are account scoped. Guarded remote two-tenant proof passed on 2026-09-13: run `AUDIT_TENANT_1789241040555` showed tenant B could not list or directly access tenant A Live AI, alerts, or AI call log data. Commit `4987e95`. |
+| AUD-13 | P1 | Live AI/notifications boundaries | Fixed | Live AI sessions, alert visibility/acknowledgement, and AI call logs are account scoped. Guarded remote two-tenant proof passed on 2026-09-13: run `AUDIT_TENANT_1789303873350` showed tenant B could not list or directly access tenant A Live AI, alerts, or AI call log data, with cleanup verification returning zero audit leftovers. |
 | AUD-14 | P1 | Authoritative call timing/billing | Partial | FreePBX call-event ingest exists and writes connected/end/duration. CDR matching is now strict; settlement errors propagate. Live PBX hook verified on call `618`: `COMPLETED`, `ANSWERED`, `duration=18`, connected/end timestamps written. Needs customer-account billing settlement proof. Commits `dee757f`, `b6db54d`, `76f5126`. |
 | AUD-15 | P2 | SIP registration/DTMF ownership states | Partial | Backend now requires recent SIP presence for user outbound calls. SIP.js registerer/DTMF protocol correctness still needs PBX integration testing. Commit `97ccd88`. |
 | AUD-16 | P2 | Frontend stale caches/identity data | Partial | Logout/session cache cleanup improved. Cache freshness model remains broader P2 work. Commit `f0ab3e9`. |
@@ -45,16 +45,14 @@ Last updated: 2026-09-13
 
 The branch has reduced the highest-risk P0/P1 surface, but the audit cannot be marked fully closed yet. Before promoting this branch as fully remediated, collect evidence for:
 
-1. Full generated two-tenant denial matrix for remaining Pro APIs, sockets, recordings, reports, live-monitoring, and mutations. First remote proof is complete for exports, Call Intelligence, Live AI, alerts, and AI call logs.
-2. Customer-account FreePBX CDR/CEL/webhook proof showing exact PTDT `callId`, billsec, and settled/released commercial authorization.
-3. Real PBX tests for originate, answer, remote hangup, local hangup, DTMF, transfer, hold failure, and concurrent same-trunk calls.
-4. PostgreSQL parallel billing proof is complete for hold, release, stale cleanup, and exactly-once settlement.
-5. Empty-database migration replay against `schema.prisma`, plus existing-database backup/restore rehearsal.
-6. Railway readiness/healthcheck and graceful shutdown validation.
+1. Customer-account FreePBX CDR/CEL/webhook proof showing exact PTDT `callId`, billsec, and settled/released commercial authorization.
+2. Real PBX tests for originate, answer, remote hangup, local hangup, DTMF, transfer, hold failure, and concurrent same-trunk calls.
+3. PostgreSQL parallel billing proof is complete for hold, release, stale cleanup, and exactly-once settlement.
+4. Empty-database migration replay against `schema.prisma`, plus existing-database backup/restore rehearsal.
+5. Railway readiness/healthcheck and graceful shutdown validation.
 
 ## Next Batch
 
 1. Run one Customer Admin/Supervisor Dynamic Caller ID call and verify billing authorization settlement from FreePBX `billsec`.
 2. Persist exact PBX channel/uniqueid/linkedid mappings from events.
 3. Bind hangup, transfer, and DTMF to the verified call mapping only.
-4. Expand tenant-isolation proof to remaining Pro report, agent-management, live-monitoring, recording mutation, and retention routes.

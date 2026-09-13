@@ -1,4 +1,7 @@
+import type { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
+import { AppError } from '../middleware/errorHandler'
+import * as Scope from './commercialScope.service'
 
 export type ReportRange = {
   from?: string
@@ -35,11 +38,11 @@ const endOfDay = (date: Date) => {
   return next
 }
 
-const buildWhere = (range: ReportRange) => {
+const buildWhere = async (range: ReportRange, actor?: Scope.ScopeActor) => {
   const to = endOfDay(clampDate(range.to, new Date()))
   const from = startOfDay(clampDate(range.from, new Date(to.getTime() - 6 * DAY_MS)))
 
-  const where: Record<string, unknown> = {
+  const filterWhere: Prisma.CallWhereInput = {
     startedAt: {
       gte: from,
       lte: to,
@@ -47,12 +50,17 @@ const buildWhere = (range: ReportRange) => {
   }
 
   if (Number.isFinite(range.campaignId) && Number(range.campaignId) > 0) {
-    where.campaignId = Number(range.campaignId)
+    filterWhere.campaignId = Number(range.campaignId)
   }
 
   if (Number.isFinite(range.agentId) && Number(range.agentId) > 0) {
-    where.agentId = Number(range.agentId)
+    filterWhere.agentId = Number(range.agentId)
   }
+
+  const scopedWhere = await Scope.callScopeWhere(actor)
+  const where = Object.keys(scopedWhere).length
+    ? { AND: [scopedWhere, filterWhere] }
+    : filterWhere
 
   return { where, from, to }
 }
@@ -128,8 +136,8 @@ const buildSimplePdf = (title: string, lines: string[]) => {
   return Buffer.from(body, 'utf8')
 }
 
-export const getOverview = async (range: ReportRange) => {
-  const { where, from, to } = buildWhere(range)
+export const getOverview = async (range: ReportRange, actor?: Scope.ScopeActor) => {
+  const { where, from, to } = await buildWhere(range, actor)
 
   const calls = await prisma.call.findMany({
     where,
@@ -183,8 +191,8 @@ export const getOverview = async (range: ReportRange) => {
   }
 }
 
-export const getAgentPerformance = async (range: ReportRange & { period?: string }) => {
-  const { where, from, to } = buildWhere(range)
+export const getAgentPerformance = async (range: ReportRange & { period?: string }, actor?: Scope.ScopeActor) => {
+  const { where, from, to } = await buildWhere(range, actor)
 
   const calls = await prisma.call.findMany({
     where,
@@ -250,8 +258,8 @@ export const getAgentPerformance = async (range: ReportRange & { period?: string
   }
 }
 
-export const getHourlyAnalytics = async (range: ReportRange) => {
-  const { where, from, to } = buildWhere(range)
+export const getHourlyAnalytics = async (range: ReportRange, actor?: Scope.ScopeActor) => {
+  const { where, from, to } = await buildWhere(range, actor)
   const calls = await prisma.call.findMany({
     where,
     select: { id: true, disposition: true, status: true, startedAt: true, duration: true },
@@ -297,8 +305,8 @@ export const getHourlyAnalytics = async (range: ReportRange) => {
   }
 }
 
-export const getConversionReport = async (range: ReportRange) => {
-  const { where, from, to } = buildWhere(range)
+export const getConversionReport = async (range: ReportRange, actor?: Scope.ScopeActor) => {
+  const { where, from, to } = await buildWhere(range, actor)
   const calls = await prisma.call.findMany({
     where,
     select: { campaignId: true, disposition: true, status: true, duration: true },
@@ -344,8 +352,8 @@ export const getConversionReport = async (range: ReportRange) => {
   }
 }
 
-export const getDurationAnalysis = async (range: ReportRange) => {
-  const { where, from, to } = buildWhere(range)
+export const getDurationAnalysis = async (range: ReportRange, actor?: Scope.ScopeActor) => {
+  const { where, from, to } = await buildWhere(range, actor)
   const calls = await prisma.call.findMany({
     where,
     select: { id: true, duration: true, disposition: true, campaignId: true, agentId: true, startedAt: true },
@@ -379,8 +387,8 @@ export const getDurationAnalysis = async (range: ReportRange) => {
   }
 }
 
-export const getMissedCallReport = async (range: ReportRange) => {
-  const { where, from, to } = buildWhere(range)
+export const getMissedCallReport = async (range: ReportRange, actor?: Scope.ScopeActor) => {
+  const { where, from, to } = await buildWhere(range, actor)
   const calls = await prisma.call.findMany({
     where,
     select: {
@@ -422,10 +430,10 @@ export const getMissedCallReport = async (range: ReportRange) => {
   }
 }
 
-export const buildDailySummaryEmail = async (range: ReportRange) => {
-  const overview = await getOverview(range)
-  const agentPerformance = await getAgentPerformance({ ...range, period: 'daily' })
-  const conversion = await getConversionReport(range)
+export const buildDailySummaryEmail = async (range: ReportRange, actor?: Scope.ScopeActor) => {
+  const overview = await getOverview(range, actor)
+  const agentPerformance = await getAgentPerformance({ ...range, period: 'daily' }, actor)
+  const conversion = await getConversionReport(range, actor)
 
   const subject = `PTDT Dialer Daily Summary — ${toYmd(new Date(overview.range.to))}`
   const topAgent = agentPerformance.agents[0]
@@ -459,8 +467,8 @@ export const buildDailySummaryEmail = async (range: ReportRange) => {
   }
 }
 
-export const sendDailySummaryEmail = async (range: ReportRange) => {
-  const email = await buildDailySummaryEmail(range)
+export const sendDailySummaryEmail = async (range: ReportRange, actor?: Scope.ScopeActor) => {
+  const email = await buildDailySummaryEmail(range, actor)
 
   if (!email.providerConfigured) {
     return {
@@ -477,11 +485,16 @@ export const sendDailySummaryEmail = async (range: ReportRange) => {
   }
 }
 
-export const buildCampaignPdf = async (campaignId: number, range: ReportRange) => {
-  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { id: true, name: true, status: true } })
-  const overview = await getOverview({ ...range, campaignId })
-  const duration = await getDurationAnalysis({ ...range, campaignId })
-  const missed = await getMissedCallReport({ ...range, campaignId })
+export const buildCampaignPdf = async (campaignId: number, range: ReportRange, actor?: Scope.ScopeActor) => {
+  const campaign = await prisma.campaign.findFirst({
+    where: { id: campaignId, ...(await Scope.campaignScopeWhere(actor)) },
+    select: { id: true, name: true, status: true },
+  })
+  if (!campaign) throw new AppError('Campaign not found for this commercial account', 404)
+
+  const overview = await getOverview({ ...range, campaignId }, actor)
+  const duration = await getDurationAnalysis({ ...range, campaignId }, actor)
+  const missed = await getMissedCallReport({ ...range, campaignId }, actor)
 
   const lines = [
     `Campaign: ${campaign?.name || `#${campaignId}`}`,
@@ -503,8 +516,8 @@ export const buildCampaignPdf = async (campaignId: number, range: ReportRange) =
   }
 }
 
-export const exportReportCsv = async (range: ReportRange) => {
-  const overview = await getOverview(range)
+export const exportReportCsv = async (range: ReportRange, actor?: Scope.ScopeActor) => {
+  const overview = await getOverview(range, actor)
   const rows = [
     ['Metric', 'Value'],
     ['Total Calls', String(overview.kpis.totalCalls)],
