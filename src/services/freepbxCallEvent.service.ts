@@ -26,15 +26,37 @@ type FreepbxCallEventInput = {
   duration?: unknown
   billsec?: unknown
   disposition?: unknown
+  timezoneOffsetMinutes?: unknown
 }
 
 const text = (value: unknown) => String(value || '').trim()
 
-const parseDate = (value: unknown) => {
+const parseTimezoneOffsetMinutes = (value: unknown) => {
+  const configured = text(value || process.env.FREEPBX_CDR_TIMEZONE_OFFSET_MINUTES)
+  if (!configured) return 0
+
+  const parsed = Number(configured)
+  if (!Number.isInteger(parsed) || Math.abs(parsed) > 14 * 60) {
+    throw new AppError('FREEPBX_CDR_TIMEZONE_OFFSET_MINUTES must be an integer offset in minutes.', 500)
+  }
+  return parsed
+}
+
+const hasExplicitTimezone = (value: string) => /(?:z|[+-]\d{2}:?\d{2})$/i.test(value)
+
+const parseDate = (value: unknown, timezoneOffsetMinutes?: unknown) => {
   const raw = text(value)
   if (!raw) return undefined
-  const parsed = new Date(raw)
-  return Number.isNaN(parsed.getTime()) ? undefined : parsed
+
+  const parsed = hasExplicitTimezone(raw)
+    ? new Date(raw)
+    : new Date(raw.replace(' ', 'T') + 'Z')
+
+  if (Number.isNaN(parsed.getTime())) return undefined
+  if (hasExplicitTimezone(raw)) return parsed
+
+  const offsetMinutes = parseTimezoneOffsetMinutes(timezoneOffsetMinutes)
+  return new Date(parsed.getTime() - offsetMinutes * 60 * 1000)
 }
 
 const parseNumber = (value: unknown) => {
@@ -120,9 +142,9 @@ const emitCallEnded = (call: { id: number; agentId: number | null; remoteNumber:
 
 export const ingestFreepbxCallEvent = async (input: FreepbxCallEventInput) => {
   const event = text(input.event || 'cdr').toLowerCase()
-  const startedAt = parseDate(input.startedAt || input.start)
-  const answeredAt = parseDate(input.answeredAt || input.answer)
-  const endedAt = parseDate(input.endedAt || input.end) || (event.includes('end') || event.includes('hangup') || event.includes('cdr') ? new Date() : undefined)
+  const startedAt = parseDate(input.startedAt || input.start, input.timezoneOffsetMinutes)
+  const answeredAt = parseDate(input.answeredAt || input.answer, input.timezoneOffsetMinutes)
+  const endedAt = parseDate(input.endedAt || input.end, input.timezoneOffsetMinutes) || (event.includes('end') || event.includes('hangup') || event.includes('cdr') ? new Date() : undefined)
   const durationSeconds = parseDuration(input) ?? (answeredAt && endedAt
     ? Math.max(0, Math.round((endedAt.getTime() - answeredAt.getTime()) / 1000))
     : undefined)

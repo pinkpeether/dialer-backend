@@ -10,6 +10,8 @@ POST https://dialer-api.ptdt.taxi/api/recordings/ingest/freepbx/cdr
 
 The backend requires an exact PTDT `callId` or exact persisted provider reference before it will update call state or settle billing.
 
+The hook sends FreePBX's current timezone offset in minutes so CDR wall-clock timestamps are normalized to UTC before storage.
+
 ## Files
 
 Copy this repository file to the FreePBX server:

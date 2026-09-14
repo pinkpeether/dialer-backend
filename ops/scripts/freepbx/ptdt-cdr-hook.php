@@ -135,6 +135,7 @@ try {
         'durationSeconds' => $duration,
         'billsec' => $billsec,
         'disposition' => clean_text(agi_get('${CDR(disposition)}'), 80),
+        'timezoneOffsetMinutes' => (string) ((int) (date('Z') / 60)),
     ];
 
     if ($payload['callId'] === '' && $payload['providerCallId'] === '') {
