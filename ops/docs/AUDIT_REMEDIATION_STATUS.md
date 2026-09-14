@@ -25,12 +25,12 @@ Last updated: 2026-09-14
 | AUD-06 | P1 | AMI unavailable/early-close false success | Fixed | AMI originate now fails closed on disabled config, errors, timeout, and early close. Commit `33e6fb7`. |
 | AUD-07 | P1 | Hangup/DTMF false completion | Partial | Unified controls no longer report unsupported/no-match as completed. Full closure needs exact call ownership and terminal event confirmation. Commit `33e6fb7`. |
 | AUD-08 | P1 | Billing concurrency safety | Fixed | Serializable billing transactions, wallet row locks, retry handling for write-conflict/deadlock/transaction-start contention, and guarded PostgreSQL proof are implemented. Remote Supabase proof passed on 2026-09-13: run `AUDIT_CONCURRENCY_1789240162826`, 12 holds, 6 settled, 6 released, 3 stale releases, held balance `0`, effective remaining value `49.5200`. |
-| AUD-09 | P1 | Billing release/bypass | Partial | Missing billing state no longer silently authorizes in main flow; latest SIP guard blocks direct UI outbound without registration; stale held authorizations can now be settled/released by background cleanup and admin control. Live Customer 1 Dynamic Caller ID proof passed on call `696`: authorization `cmtzw7ab6000uj6zuhd41jsyk` moved to `SETTLED`, wallet `heldBalance=0`, `staleHeldCount=0`, and HOLD/CALL_CHARGE transactions were created. This proof used included minutes, so a non-zero cash-charge call and no-answer release case are still useful release evidence. Commits `d568497`, `97ccd88`, `b655ed0`, `bd25820`. |
+| AUD-09 | P1 | Billing release/bypass | Partial | Missing billing state no longer silently authorizes in main flow; latest SIP guard blocks direct UI outbound without registration; stale held authorizations can now be settled/released by background cleanup and admin control. Live Customer 1 Dynamic Caller ID proofs passed: call `699` settled with non-zero `CALL_CHARGE 0.15`, while missed/rejected calls `702` and `703` released their `0.15` holds with no charge and `staleHeldCount=0`. Remaining billing risk is mid-call duration cap/provider-balance enforcement beyond the initial hold. Commits `d568497`, `97ccd88`, `b655ed0`, `bd25820`. |
 | AUD-10 | P1 | Hold privacy | Fixed | Failed hold throws and keeps mic muted instead of reporting safe hold. Commit `f0ab3e9`. |
 | AUD-11 | P1 | Logout/session/SIP cleanup | Partial | Frontend session cleanup and SIP clearing hardened; backend session-version revocation remains pending. Commits `f0ab3e9`, `13f2512`. |
 | AUD-12 | P1 | Prisma migration replay | Partial | Runtime enum migration sync added. Full empty-database migration replay and schema drift proof still needed. Commit `c065aaf`. |
 | AUD-13 | P1 | Live AI/notifications boundaries | Fixed | Live AI sessions, alert visibility/acknowledgement, and AI call logs are account scoped. Guarded remote two-tenant proof passed on 2026-09-13: run `AUDIT_TENANT_1789303873350` showed tenant B could not list or directly access tenant A Live AI, alerts, or AI call log data, with cleanup verification returning zero audit leftovers. |
-| AUD-14 | P1 | Authoritative call timing/billing | Partial | FreePBX call-event ingest exists, strict call matching is enabled, and settlement errors propagate. Live PBX hook verified on call `618`: `COMPLETED`, `ANSWERED`, `duration=18`, connected/end timestamps written. Live Customer 1 billing proof on call `696` verified exact FreePBX billsec settlement: call `COMPLETED`, `ANSWERED`, `duration=29`, authorization `SETTLED`, wallet `heldBalance=0`, no stale held authorization, and HOLD/CALL_CHARGE transactions present. Remaining issue: stored call timestamps in this proof appeared about two hours ahead of the verification clock, so FreePBX timestamp timezone normalization still needs review. Commits `dee757f`, `b6db54d`, `76f5126`. |
+| AUD-14 | P1 | Authoritative call timing/billing | Partial | FreePBX call-event ingest exists, strict call matching is enabled, and settlement errors propagate. Live PBX hook verified on call `618`: `COMPLETED`, `ANSWERED`, `duration=18`, connected/end timestamps written. Live Customer 1 proofs verified billsec-driven settlement and release: call `699` settled with `duration=22` and `CALL_CHARGE 0.15`, while calls `702` and `703` released with `duration=0`, no charge, and no stale held authorization. Remaining issue: stored call timestamps in these proofs appeared about two hours ahead of the verification clock, so FreePBX timestamp timezone normalization still needs review. Commits `dee757f`, `b6db54d`, `76f5126`. |
 | AUD-15 | P2 | SIP registration/DTMF ownership states | Partial | Backend now requires recent SIP presence for user outbound calls. SIP.js registerer/DTMF protocol correctness still needs PBX integration testing. Commit `97ccd88`. |
 | AUD-16 | P2 | Frontend stale caches/identity data | Partial | Logout/session cache cleanup improved. Cache freshness model remains broader P2 work. Commit `f0ab3e9`. |
 | AUD-17 | P2 | Campaign process-local execution | Pending | Durable queue, campaign leases, cancellation generations, and multi-instance tests not yet implemented. |
@@ -45,7 +45,7 @@ Last updated: 2026-09-14
 
 The branch has reduced the highest-risk P0/P1 surface, but the audit cannot be marked fully closed yet. Before promoting this branch as fully remediated, collect evidence for:
 
-1. FreePBX timestamp timezone normalization review, plus one non-zero cash-charge call and one no-answer release proof.
+1. FreePBX timestamp timezone normalization review.
 2. Real PBX tests for originate, answer, remote hangup, local hangup, DTMF, transfer, hold failure, and concurrent same-trunk calls.
 3. PostgreSQL parallel billing proof is complete for hold, release, stale cleanup, and exactly-once settlement.
 4. Empty-database migration replay against `schema.prisma`, plus existing-database backup/restore rehearsal.
@@ -54,7 +54,5 @@ The branch has reduced the highest-risk P0/P1 surface, but the audit cannot be m
 ## Next Batch
 
 1. Normalize FreePBX event timestamps so PBX local time is stored consistently as UTC.
-2. Run one paid Dynamic Caller ID call after included minutes are exhausted or disabled, and verify non-zero wallet debit.
-3. Run one no-answer/rejected Dynamic Caller ID call and verify authorization release.
-4. Persist exact PBX channel/uniqueid/linkedid mappings from events.
-5. Bind hangup, transfer, and DTMF to the verified call mapping only.
+2. Persist exact PBX channel/uniqueid/linkedid mappings from events.
+3. Bind hangup, transfer, and DTMF to the verified call mapping only.
