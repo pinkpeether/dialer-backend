@@ -12,6 +12,8 @@ The backend requires an exact PTDT `callId` or exact persisted provider referenc
 
 The hook sends FreePBX's current timezone offset in minutes so CDR wall-clock timestamps are normalized to UTC before storage.
 
+The live AGI install path verified for the current PBX pilot is `/var/lib/asterisk/agi-bin/ptdt-cdr-hook.php`.
+
 ## Files
 
 Copy this repository file to the FreePBX server:
