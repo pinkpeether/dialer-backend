@@ -74,6 +74,25 @@ function normalize_api_base(string $base): string
     return $base;
 }
 
+function timezone_offset_minutes(array $config): string
+{
+    $configured = trim($config['PTDT_FREEPBX_TIMEZONE_OFFSET_MINUTES'] ?? '');
+    if ($configured === '') {
+        return (string) ((int) (date('Z') / 60));
+    }
+
+    if (!preg_match('/^-?\d+$/', $configured)) {
+        throw new RuntimeException('PTDT_FREEPBX_TIMEZONE_OFFSET_MINUTES must be an integer offset in minutes');
+    }
+
+    $offset = (int) $configured;
+    if (abs($offset) > 14 * 60) {
+        throw new RuntimeException('PTDT_FREEPBX_TIMEZONE_OFFSET_MINUTES must be within +/- 14 hours');
+    }
+
+    return (string) $offset;
+}
+
 function post_json(string $url, string $secret, array $payload): array
 {
     $body = json_encode($payload, JSON_UNESCAPED_SLASHES);
@@ -135,7 +154,7 @@ try {
         'durationSeconds' => $duration,
         'billsec' => $billsec,
         'disposition' => clean_text(agi_get('${CDR(disposition)}'), 80),
-        'timezoneOffsetMinutes' => (string) ((int) (date('Z') / 60)),
+        'timezoneOffsetMinutes' => timezone_offset_minutes($config),
     ];
 
     if ($payload['callId'] === '' && $payload['providerCallId'] === '') {
