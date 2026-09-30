@@ -157,12 +157,12 @@ function amiCommand(lines: Array<string | null | undefined>) {
   return lines.filter(Boolean).join('\r\n') + '\r\n\r\n'
 }
 
-function loginAction() {
+function loginAction(events: 'on' | 'off' = 'off') {
   return amiCommand([
     'Action: Login',
     'Username: ' + AMI_USERNAME,
     'Secret: ' + AMI_PASSWORD,
-    'Events: off',
+    'Events: ' + events,
   ])
 }
 
@@ -389,7 +389,7 @@ async function listCoreShowChannels() {
   ])
 
   const response = await sendAmiUntil(
-    [loginAction(), coreShowAction],
+    [loginAction('on'), coreShowAction],
     buffer => buffer.includes('Event: CoreShowChannelsComplete'),
     Math.max(AMI_TIMEOUT_MS, 1800),
   )
