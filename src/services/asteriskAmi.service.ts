@@ -22,6 +22,7 @@ const TRANSFER_CONTEXT = process.env.ASTERISK_TRANSFER_CONTEXT || 'from-internal
 const TRANSFER_INTERNAL_CONTEXT = process.env.ASTERISK_TRANSFER_INTERNAL_CONTEXT || TRANSFER_CONTEXT
 const TRANSFER_EXTERNAL_PREFIX = process.env.ASTERISK_TRANSFER_EXTERNAL_PREFIX || ''
 const TRANSFER_PRIORITY = process.env.ASTERISK_TRANSFER_PRIORITY || '1'
+const ALLOW_LOOSE_CONTROL_MATCHING = String(process.env.ASTERISK_ALLOW_LOOSE_CONTROL_MATCHING || '').toLowerCase() === 'true'
 
 export type AmiOriginateInput = {
   to: string
@@ -82,6 +83,12 @@ type ConciseChannel = {
   bridgeId: string
   uniqueId: string
   raw: string
+}
+
+type InspectedChannel = ConciseChannel & {
+  ptdtCallId?: string
+  ptdtAgentExtension?: string
+  linkedId?: string
 }
 
 const sanitizeDialString = (value: string) => value.replace(/[^0-9+*#]/g, '')
@@ -344,12 +351,59 @@ async function listConciseChannels() {
   return parseConciseChannels(response)
 }
 
-function findHangupTargets(channels: ConciseChannel[], input: AmiHangupInput) {
+const getAmiValue = (buffer: string) => {
+  const blocks = buffer.split(/\r?\n\r?\n/)
+  for (const block of blocks) {
+    if (!block.includes('Response: Success')) continue
+    const value = block
+      .split(/\r?\n/)
+      .find(line => /^Value:/i.test(line))
+      ?.replace(/^Value:\s*/i, '')
+      .trim()
+    if (value !== undefined) return value
+  }
+  return ''
+}
+
+async function getChannelValue(channel: string, variable: string) {
+  const action = amiCommand([
+    'Action: Getvar',
+    'ActionID: ' + actionId(),
+    'Channel: ' + channel,
+    'Variable: ' + variable,
+  ])
+
+  try {
+    const response = await sendAmiUntil(
+      [loginAction(), action],
+      buffer => buffer.includes('Response: Success') || buffer.includes('Response: Error'),
+      Math.max(AMI_TIMEOUT_MS, 1800),
+    )
+    return getAmiValue(response)
+  } catch {
+    return ''
+  }
+}
+
+async function inspectControlChannels(channels: ConciseChannel[]): Promise<InspectedChannel[]> {
+  const inspectable = channels
+    .filter(item => item.channel && (item.channel.startsWith('PJSIP/') || item.channel.startsWith('Local/')))
+    .slice(0, 40)
+
+  return Promise.all(inspectable.map(async item => ({
+    ...item,
+    ptdtCallId: await getChannelValue(item.channel, 'PTDT_CALL_ID'),
+    ptdtAgentExtension: await getChannelValue(item.channel, 'PTDT_AGENT_EXTENSION'),
+    linkedId: await getChannelValue(item.channel, 'CHANNEL(linkedid)'),
+  })))
+}
+
+function findControlTargets(channels: InspectedChannel[], input: AmiHangupInput) {
   const phoneDigits = digitsOnly(input.phone)
   const agentExtension = sanitizeExtension(input.agentExtension)
   const callId = input.callId ? String(input.callId) : ''
   const providerCallId = input.providerCallId ? String(input.providerCallId) : ''
-  const hasStrongInput = Boolean(phoneDigits || agentExtension || callId || providerCallId)
+  const hasStrongInput = Boolean(callId || providerCallId)
   if (!hasStrongInput) return []
 
   const matched = channels.filter(item => {
@@ -364,24 +418,21 @@ function findHangupTargets(channels: ConciseChannel[], input: AmiHangupInput) {
       item.duration,
       item.bridgeId,
       item.uniqueId,
+      item.linkedId,
+      item.ptdtCallId,
+      item.ptdtAgentExtension,
       item.raw,
     ].join(' ')
 
-    const blobDigits = digitsOnly(blob)
-
-    const matchesPhone = Boolean(phoneDigits && blobDigits.includes(phoneDigits))
-    const matchesCallId = Boolean(callId && blob.includes(callId))
-    const matchesProvider = Boolean(providerCallId && blob.includes(providerCallId))
-    const matchesAgent = Boolean(agentExtension && (
-      item.channel.includes('/' + agentExtension + '-') ||
-      item.exten === agentExtension ||
-      item.data.includes('/' + agentExtension)
-    ))
-    const matchesTrunkLeg = Boolean(TRUNK_NAME && item.channel.includes(TRUNK_NAME) && (
-      matchesPhone
+    const matchesCallId = Boolean(callId && item.ptdtCallId === callId)
+    const matchesProvider = Boolean(providerCallId && (
+      item.uniqueId === providerCallId ||
+      item.linkedId === providerCallId ||
+      item.bridgeId === providerCallId ||
+      blob.includes(providerCallId)
     ))
 
-    return matchesPhone || matchesCallId || matchesProvider || matchesAgent || matchesTrunkLeg
+    return matchesCallId || matchesProvider
   })
 
   const bridgeIds = new Set(matched.map(item => item.bridgeId).filter(Boolean))
@@ -395,11 +446,10 @@ function findHangupTargets(channels: ConciseChannel[], input: AmiHangupInput) {
   })
 
   /*
-    Last-resort safe fallback for this backend-originated call:
-    if exact matching found nothing but we have agent/destination input, kill
-    only channels that match the current agent or destination, then expand by bridge.
+    Legacy fallback is intentionally disabled by default. Phone/agent matching
+    can hit the wrong call when two calls share a trunk or agent close together.
   */
-  if (targetSet.size === 0) {
+  if (targetSet.size === 0 && ALLOW_LOOSE_CONTROL_MATCHING) {
     const fallbackBridgeIds = new Set<string>()
 
     channels.forEach(item => {
@@ -478,8 +528,8 @@ export async function hangupBackendOriginatedCall(input: AmiHangupInput): Promis
     'Cause: 16',
   ]))
 
-  const firstChannels = await listConciseChannels()
-  const firstTargets = findHangupTargets(firstChannels, input)
+  const firstChannels = await inspectControlChannels(await listConciseChannels())
+  const firstTargets = findControlTargets(firstChannels, input)
 
   if (firstTargets.length === 0) {
     const noMatch = 'NO_MATCH: no PTDT-Dialer AMI channels matched. Active channels:\n' +
@@ -493,8 +543,10 @@ export async function hangupBackendOriginatedCall(input: AmiHangupInput): Promis
 
   await sleep(300)
 
-  const secondChannels = await listConciseChannels().catch(() => [])
-  const secondTargets = findHangupTargets(secondChannels, input).filter(channel => !firstTargets.includes(channel))
+  const secondChannels = await listConciseChannels()
+    .then(channels => inspectControlChannels(channels))
+    .catch(() => [])
+  const secondTargets = findControlTargets(secondChannels, input).filter(channel => !firstTargets.includes(channel))
 
   const secondResponse = secondTargets.length > 0
     ? await sendAmiFire([loginAction(), ...makeHangupActions(secondTargets)])
@@ -570,7 +622,7 @@ export async function transferBackendOriginatedCall(input: AmiTransferInput): Pr
     }
   }
 
-  const channels = findHangupTargets(await listConciseChannels(), input)
+  const channels = findControlTargets(await inspectControlChannels(await listConciseChannels()), input)
   const channel = pickTransferChannel(channels, input.agentExtension)
 
   if (!channel) {
