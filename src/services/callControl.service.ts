@@ -239,7 +239,7 @@ export const runControlAction = async ({ action, payload, actor, ipAddress }: Ru
         callId,
         providerCallId: providerCallId || null,
         phone: safeString(call.remoteNumber) || null,
-        agentExtension: safeString(payload.agentExtension) || null,
+        agentExtension: safeString(payload.agentExtension) || call.agent?.extension || null,
         target,
       })
 
