@@ -10,7 +10,7 @@ POST https://dialer-api.ptdt.taxi/api/recordings/ingest/freepbx/cdr
 
 The backend requires an exact PTDT `callId` or exact persisted provider reference before it will update call state or settle billing.
 
-The hook sends FreePBX's current timezone offset in minutes so CDR wall-clock timestamps are normalized to UTC before storage.
+The hook sends FreePBX's current timezone offset in minutes so CDR wall-clock timestamps are normalized to UTC before storage. Set `PTDT_FREEPBX_TIMEZONE_OFFSET_MINUTES` when PHP CLI timezone differs from the Asterisk/CDR local timezone.
 
 The live AGI install path verified for the current PBX pilot is `/var/lib/asterisk/agi-bin/ptdt-cdr-hook.php`.
 
@@ -32,6 +32,8 @@ sudo install -o asterisk -g asterisk -m 0750 -d /etc/ptdt-dialer
 sudo tee /etc/ptdt-dialer/freepbx-cdr-hook.env >/dev/null <<'EOF'
 PTDT_DIALER_API_BASE=https://dialer-api.ptdt.taxi/api
 PTDT_FREEPBX_INGEST_SECRET=REPLACE_WITH_RAILWAY_FREEPBX_INGEST_SECRET
+# Optional. Current CEST pilot uses 120 because Asterisk CDR time is UTC+2 while PHP CLI is UTC.
+PTDT_FREEPBX_TIMEZONE_OFFSET_MINUTES=120
 EOF
 sudo chown asterisk:asterisk /etc/ptdt-dialer/freepbx-cdr-hook.env
 sudo chmod 0640 /etc/ptdt-dialer/freepbx-cdr-hook.env
