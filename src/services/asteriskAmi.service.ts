@@ -407,6 +407,44 @@ async function listAmiChannels() {
   return listConciseChannels()
 }
 
+const discoverySnippet = (label: string, raw: string) => {
+  const cleaned = raw
+    .split(/\r?\n/)
+    .filter(line => !/^Secret:/i.test(line) && !/^Username:/i.test(line))
+    .join('\n')
+    .trim()
+
+  return `${label}:\n${cleaned.slice(0, 1600) || '(empty response)'}`
+}
+
+async function channelDiscoveryDiagnostic() {
+  const coreShowAction = amiCommand([
+    'Action: CoreShowChannels',
+    'ActionID: ' + actionId(),
+  ])
+  const commandAction = amiCommand([
+    'Action: Command',
+    'Command: core show channels concise',
+  ])
+
+  const coreRaw = await sendAmiUntil(
+    [loginAction('on'), coreShowAction],
+    buffer => buffer.includes('Event: CoreShowChannelsComplete') || buffer.includes('Response: Error'),
+    Math.max(AMI_TIMEOUT_MS, 1800),
+  ).catch(err => `ERROR: ${err instanceof Error ? err.message : String(err)}`)
+
+  const conciseRaw = await sendAmiUntil(
+    [loginAction(), commandAction],
+    buffer => buffer.includes('--END COMMAND--') || buffer.includes('Response: Error'),
+    Math.max(AMI_TIMEOUT_MS, 1800),
+  ).catch(err => `ERROR: ${err instanceof Error ? err.message : String(err)}`)
+
+  return [
+    discoverySnippet('CoreShowChannels raw', coreRaw),
+    discoverySnippet('Concise command raw', conciseRaw),
+  ].join('\n---\n')
+}
+
 const getAmiValue = (buffer: string) => {
   const blocks = buffer.split(/\r?\n\r?\n/)
   for (const block of blocks) {
@@ -588,8 +626,12 @@ export async function hangupBackendOriginatedCall(input: AmiHangupInput): Promis
   const firstTargets = findControlTargets(firstChannels, input)
 
   if (firstTargets.length === 0) {
+    const discovery = firstChannels.length === 0
+      ? '\n\nAMI discovery diagnostic:\n' + await channelDiscoveryDiagnostic()
+      : ''
     const noMatch = 'NO_MATCH: no PTDT-Dialer AMI channels matched. Active channels:\n' +
-      firstChannels.map(item => item.raw).join('\n').slice(0, 2500)
+      firstChannels.map(item => item.raw).join('\n').slice(0, 2500) +
+      discovery
 
     logger.info('Asterisk AMI hangup found no matching PTDT-Dialer channels')
     return { enabled: true, channels: [], response: noMatch }
