@@ -336,6 +336,37 @@ function parseConciseChannels(raw: string): ConciseChannel[] {
     })
 }
 
+const parseAmiBlocks = (raw: string) => raw
+  .split(/\r?\n\r?\n/)
+  .map(block => block.trim())
+  .filter(Boolean)
+
+const amiField = (block: string, name: string) => {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = block.match(new RegExp('^' + escaped + ':\\s*(.*)$', 'im'))
+  return match?.[1]?.trim() || ''
+}
+
+function parseCoreShowChannels(raw: string): ConciseChannel[] {
+  return parseAmiBlocks(raw)
+    .filter(block => /^Event:\s*CoreShowChannel$/im.test(block))
+    .map(block => ({
+      channel: amiField(block, 'Channel'),
+      context: amiField(block, 'Context'),
+      exten: amiField(block, 'Extension') || amiField(block, 'Exten'),
+      state: amiField(block, 'ChannelStateDesc') || amiField(block, 'ChannelState'),
+      application: amiField(block, 'Application'),
+      data: amiField(block, 'ApplicationData'),
+      callerIdNum: amiField(block, 'CallerIDNum') || amiField(block, 'CallerIDnum'),
+      accountCode: amiField(block, 'AccountCode'),
+      duration: amiField(block, 'Duration'),
+      bridgeId: amiField(block, 'BridgeId'),
+      uniqueId: amiField(block, 'Uniqueid') || amiField(block, 'UniqueID'),
+      raw: block.replace(/\r?\n/g, ' | '),
+    }))
+    .filter(item => item.channel)
+}
+
 async function listConciseChannels() {
   const commandAction = amiCommand([
     'Action: Command',
@@ -349,6 +380,31 @@ async function listConciseChannels() {
   )
 
   return parseConciseChannels(response)
+}
+
+async function listCoreShowChannels() {
+  const coreShowAction = amiCommand([
+    'Action: CoreShowChannels',
+    'ActionID: ' + actionId(),
+  ])
+
+  const response = await sendAmiUntil(
+    [loginAction(), coreShowAction],
+    buffer => buffer.includes('Event: CoreShowChannelsComplete'),
+    Math.max(AMI_TIMEOUT_MS, 1800),
+  )
+
+  return parseCoreShowChannels(response)
+}
+
+async function listAmiChannels() {
+  const coreChannels = await listCoreShowChannels().catch(err => {
+    logger.warn(`AMI CoreShowChannels failed, falling back to concise command: ${err}`)
+    return []
+  })
+  if (coreChannels.length > 0) return coreChannels
+
+  return listConciseChannels()
 }
 
 const getAmiValue = (buffer: string) => {
@@ -528,7 +584,7 @@ export async function hangupBackendOriginatedCall(input: AmiHangupInput): Promis
     'Cause: 16',
   ]))
 
-  const firstChannels = await inspectControlChannels(await listConciseChannels())
+  const firstChannels = await inspectControlChannels(await listAmiChannels())
   const firstTargets = findControlTargets(firstChannels, input)
 
   if (firstTargets.length === 0) {
@@ -543,7 +599,7 @@ export async function hangupBackendOriginatedCall(input: AmiHangupInput): Promis
 
   await sleep(300)
 
-  const secondChannels = await listConciseChannels()
+  const secondChannels = await listAmiChannels()
     .then(channels => inspectControlChannels(channels))
     .catch(() => [])
   const secondTargets = findControlTargets(secondChannels, input).filter(channel => !firstTargets.includes(channel))
@@ -622,7 +678,7 @@ export async function transferBackendOriginatedCall(input: AmiTransferInput): Pr
     }
   }
 
-  const channels = findControlTargets(await inspectControlChannels(await listConciseChannels()), input)
+  const channels = findControlTargets(await inspectControlChannels(await listAmiChannels()), input)
   const channel = pickTransferChannel(channels, input.agentExtension)
 
   if (!channel) {
