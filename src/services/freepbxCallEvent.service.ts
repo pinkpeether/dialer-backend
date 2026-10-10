@@ -60,30 +60,49 @@ const parseDate = (value: unknown, timezoneOffsetMinutes?: unknown) => {
 }
 
 const parseNumber = (value: unknown) => {
+  if (value === undefined || value === null) return undefined
+  if (typeof value === 'string' && value.trim() === '') return undefined
   const numeric = Number(value)
   return Number.isFinite(numeric) ? numeric : undefined
 }
 
-const parseDuration = (input: FreepbxCallEventInput) => {
-  const preferred = parseNumber(input.billsec) ?? parseNumber(input.durationSeconds) ?? parseNumber(input.duration)
+const parseSeconds = (value: unknown) => {
+  const parsed = parseNumber(value)
+  return parsed === undefined ? undefined : Math.max(0, Math.round(parsed))
+}
+
+const parseBillableDuration = (input: FreepbxCallEventInput, answeredAt?: Date, endedAt?: Date) => {
+  const preferred = parseSeconds(input.billsec)
+  if (preferred !== undefined) return preferred
+  if (!answeredAt || !endedAt) return undefined
+  return Math.max(0, Math.round((endedAt.getTime() - answeredAt.getTime()) / 1000))
+}
+
+const isTerminalEvent = (event: string) =>
+  event.includes('end') || event.includes('hangup') || event.includes('cdr') || event.includes('complete')
+
+const parseTotalDuration = (input: FreepbxCallEventInput) => {
+  const preferred = parseSeconds(input.duration) ?? parseSeconds(input.durationSeconds)
   return preferred === undefined ? undefined : Math.max(0, Math.round(preferred))
 }
 
 const normalizeDisposition = (value: unknown, durationSeconds?: number): CallDisposition | null => {
   const raw = text(value).toUpperCase().replace(/[\s-]+/g, '_')
-  if (raw.includes('ANSWER') && raw !== 'NO_ANSWER') return 'ANSWERED'
   if (raw.includes('NO_ANSWER') || raw.includes('NOANSWER')) return 'NO_ANSWER'
-  if (raw.includes('BUSY')) return 'NO_ANSWER'
-  if (raw.includes('VOICEMAIL')) return 'VOICEMAIL'
+  if (raw.includes('BUSY') || raw.includes('CANCEL') || raw.includes('REJECT') || raw.includes('DECLINE')) return 'NO_ANSWER'
   if (raw.includes('FAILED') || raw.includes('CONGESTION') || raw.includes('CHANUNAVAIL')) return 'NO_ANSWER'
+  if (raw.includes('VOICEMAIL')) return 'VOICEMAIL'
+  if (raw.includes('ANSWER')) return 'ANSWERED'
   if (durationSeconds !== undefined) return durationSeconds > 0 ? 'ANSWERED' : 'NO_ANSWER'
   return null
 }
 
-const statusForEvent = (event: string, durationSeconds?: number): CallStatus => {
+const statusForEvent = (event: string, durationSeconds?: number, disposition?: CallDisposition | null): CallStatus => {
   if (event.includes('answer') || event === 'answered') return 'ANSWERED'
-  if (event.includes('end') || event.includes('hangup') || event.includes('cdr') || event.includes('complete')) {
-    return durationSeconds && durationSeconds > 0 ? 'COMPLETED' : 'NO_ANSWER'
+  if (isTerminalEvent(event)) {
+    return disposition === 'ANSWERED' || disposition === 'VOICEMAIL' || (durationSeconds && durationSeconds > 0)
+      ? 'COMPLETED'
+      : 'NO_ANSWER'
   }
   return 'RINGING'
 }
@@ -144,12 +163,13 @@ export const ingestFreepbxCallEvent = async (input: FreepbxCallEventInput) => {
   const event = text(input.event || 'cdr').toLowerCase()
   const startedAt = parseDate(input.startedAt || input.start, input.timezoneOffsetMinutes)
   const answeredAt = parseDate(input.answeredAt || input.answer, input.timezoneOffsetMinutes)
-  const endedAt = parseDate(input.endedAt || input.end, input.timezoneOffsetMinutes) || (event.includes('end') || event.includes('hangup') || event.includes('cdr') ? new Date() : undefined)
-  const durationSeconds = parseDuration(input) ?? (answeredAt && endedAt
-    ? Math.max(0, Math.round((endedAt.getTime() - answeredAt.getTime()) / 1000))
-    : undefined)
+  const terminalEvent = isTerminalEvent(event)
+  const endedAt = parseDate(input.endedAt || input.end, input.timezoneOffsetMinutes) || (terminalEvent ? new Date() : undefined)
+  const billableDurationSeconds = parseBillableDuration(input, answeredAt, endedAt)
+  const durationSeconds = billableDurationSeconds ?? (terminalEvent ? 0 : undefined)
+  const totalDurationSeconds = parseTotalDuration(input)
   const disposition = normalizeDisposition(input.disposition, durationSeconds)
-  const status = statusForEvent(event, durationSeconds)
+  const status = statusForEvent(event, durationSeconds, disposition)
   const { call, matchStrategy } = await findCall(input)
 
   const data: Prisma.CallUpdateInput = {
@@ -171,7 +191,7 @@ export const ingestFreepbxCallEvent = async (input: FreepbxCallEventInput) => {
   })
 
   if (endedAt || status === 'COMPLETED' || status === 'NO_ANSWER') {
-    if (durationSeconds && durationSeconds > 0) {
+    if ((disposition === 'ANSWERED' || disposition === 'VOICEMAIL') && durationSeconds && durationSeconds > 0) {
       await callingBillingService.settleCallAuthorization(updated.id, durationSeconds)
     } else {
       await callingBillingService.releaseCallAuthorization(updated.id)
@@ -189,6 +209,7 @@ export const ingestFreepbxCallEvent = async (input: FreepbxCallEventInput) => {
       connectedAt: updated.connectedAt,
       endedAt: updated.endedAt,
       duration: updated.duration,
+      totalDuration: totalDurationSeconds,
       providerCallId: updated.providerCallId,
     },
   }
