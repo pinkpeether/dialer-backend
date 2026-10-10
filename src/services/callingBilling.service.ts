@@ -55,6 +55,22 @@ const normalizeDestination = (value: string) => value.replace(/[^0-9]/g, '')
 const billableSeconds = (duration: number, minimum: number, increment: number) => Math.ceil(Math.max(duration, minimum) / increment) * increment
 type BillingTx = Prisma.TransactionClient
 
+const hasBillableCompletedCall = (call?: {
+  status?: string | null
+  disposition?: string | null
+  duration?: number | null
+  connectedAt?: Date | null
+}) => {
+  const durationSeconds = Number(call?.duration || 0)
+  if (durationSeconds <= 0) return false
+
+  const disposition = String(call?.disposition || '').toUpperCase()
+  if (disposition === 'NO_ANSWER') return false
+  if (disposition === 'ANSWERED' || disposition === 'VOICEMAIL') return true
+
+  return String(call?.status || '').toUpperCase() === 'COMPLETED' && Boolean(call?.connectedAt)
+}
+
 const lockWalletForUpdate = async (tx: BillingTx, walletId: number) => {
   await tx.$queryRaw<{ id: number }[]>`SELECT id FROM "CommercialWallet" WHERE id = ${walletId} FOR UPDATE`
 }
@@ -345,7 +361,7 @@ export const callingBillingService = {
 
     const candidates = await prisma.commercialCallAuthorization.findMany({
       where: { status: 'HELD', createdAt: { lte: cutoff } },
-      include: { call: { select: { id: true, status: true, duration: true, endedAt: true, remoteNumber: true } } },
+      include: { call: { select: { id: true, status: true, disposition: true, duration: true, connectedAt: true, endedAt: true, remoteNumber: true } } },
       orderBy: { createdAt: 'asc' },
       take: limit,
     })
@@ -365,7 +381,7 @@ export const callingBillingService = {
 
     for (const authorization of candidates) {
       const durationSeconds = Number(authorization.call?.duration || 0)
-      const action = durationSeconds > 0 ? 'SETTLE' : 'RELEASE'
+      const action = hasBillableCompletedCall(authorization.call) ? 'SETTLE' : 'RELEASE'
       if (dryRun) {
         items.push({ authorizationId: authorization.id, callId: authorization.callId, action, statusBefore: authorization.status, durationSeconds, skipped: true })
         continue
